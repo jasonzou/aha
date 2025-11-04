@@ -493,19 +493,24 @@ impl Qwen2_5VLVisionModel {
         let sin = emb.sin()?.to_dtype(hidden_states.dtype())?;
         let cu_seqlens = grid_thw.i((.., 1))?.mul(&grid_thw.i((.., 2))?)?;
         let grid_t = grid_thw.i((.., 0))?.to_vec1::<u32>()?;
-        let cu_seqlens_full = match cu_seqlens.rank() {
-            1 => cu_seqlens.repeat(grid_t[0] as usize)?,
-            2 => {
-                let mut cu_seqlens_repeat = Vec::new();
-                for (index, t) in grid_t.iter().enumerate() {
-                    cu_seqlens_repeat.push(cu_seqlens.i(index)?.repeat(*t as usize)?);
-                }
-                Tensor::cat(&cu_seqlens_repeat, 0)?.flatten_all()?
-            }
-            _ => {
-                return Err(anyhow!(format!("create cu_seqlens error")));
-            }
-        };
+        // let cu_seqlens_full = match cu_seqlens.rank() {
+        //     1 => cu_seqlens.repeat(grid_t[0] as usize)?,
+        //     2 => {
+        //         let mut cu_seqlens_repeat = Vec::new();
+        //         for (index, t) in grid_t.iter().enumerate() {
+        //             cu_seqlens_repeat.push(cu_seqlens.i(index)?.repeat(*t as usize)?);
+        //         }
+        //         Tensor::cat(&cu_seqlens_repeat, 0)?.flatten_all()?
+        //     }
+        //     _ => {
+        //         return Err(anyhow!(format!("create cu_seqlens error")));
+        //     }
+        // };
+        let mut cu_seqlens_repeat = Vec::new();
+        for (index, t) in grid_t.iter().enumerate() {
+            cu_seqlens_repeat.push(cu_seqlens.i(index)?.repeat(*t as usize)?);
+        }
+        let cu_seqlens_full = Tensor::cat(&cu_seqlens_repeat, 0)?.flatten_all()?;
         let cu_seqlens = cu_seqlens_full
             .to_dtype(DType::F64)?
             .cumsum(0)?

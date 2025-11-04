@@ -28,7 +28,7 @@ fn qwen2_5vl_generate() -> Result<()> {
                         {
                             "url": "file://./assets/img/ocr_test1.png"
                         }
-                    },               
+                    },             
                     {
                         "type": "text", 
                         "text": "请分析图片并提取所有可见文本内容，按从左到右、从上到下的布局，返回纯文本"

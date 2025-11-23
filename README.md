@@ -50,14 +50,17 @@ aha = { git = "https://github.com/jhqxxx/aha.git", features = ["cuda", "flash-at
 git clone https://github.com/jhqxxx/aha.git
 cd aha
 # 修改测试用例中模型路径
+# 运行 DeepSeek-OCR 示例
+cargo test -F cuda deepseek_ocr_generate -r -- --nocapture
+
 # 运行 Qwen3VL 示例
-cargo test -F cuda qwen3vl_generate -- --nocapture
+cargo test -F cuda qwen3vl_generate -r -- --nocapture
 
 # 运行 MiniCPM4 示例  
-cargo test -F cuda minicpm_generate -- --nocapture
+cargo test -F cuda minicpm_generate -r -- --nocapture
 
 # 运行 VoxCPM 示例
-cargo test -F cuda voxcpm_generate -- --nocapture
+cargo test -F cuda voxcpm_generate -r -- --nocapture
 ```
 
 ## 使用方法
@@ -100,6 +103,7 @@ fn main() -> Result<()> {
 │   ├── chat_template
 │   ├── models
 │   │   ├── common
+│   │   ├── deepseek_ocr
 │   │   ├── minicpm4
 │   │   ├── qwen2_5vl
 │   │   ├── qwen3vl
@@ -110,6 +114,7 @@ fn main() -> Result<()> {
 │   ├── utils
 │   └── lib.rs
 └── tests
+    ├── test_deepseek_ocr.rs
     ├── test_minicpm4.rs
     ├── test_qwen2_5vl.rs
     └── test_voxcpm.rs

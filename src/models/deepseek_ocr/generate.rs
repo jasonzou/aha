@@ -86,7 +86,11 @@ impl GenerateModel for DeepseekOCRGenerateModel {
         } else {
             false
         };
-        let mut logit_processor = get_logit_processor(mes.temperature, mes.top_p, None);
+        let seed = match mes.seed {
+            None => 34562u64,
+            Some(s) => s as u64,
+        };
+        let mut logit_processor = get_logit_processor(mes.temperature, mes.top_p, None, seed);
         let (mut input_ids, images_ori, image_crop, images_seq_mask, images_spatial_crop_t) = self
             .processor
             .process_info(&mes, &self.tokenizer, base_size, image_size, crop_mode)?;
@@ -130,11 +134,48 @@ impl GenerateModel for DeepseekOCRGenerateModel {
     fn generate_stream(
         &mut self,
         mes: ChatCompletionParameters,
-    ) -> Result<impl Stream<Item = Result<ChatCompletionChunkResponse, anyhow::Error>>> {
-        let mut logit_processor = get_logit_processor(mes.temperature, mes.top_p, None);
+    ) -> Result<
+        Box<
+            dyn Stream<Item = Result<ChatCompletionChunkResponse, anyhow::Error>>
+                + Send
+                + Unpin
+                + '_,
+        >,
+    > {
+        let base_size = if let Some(map) = &mes.metadata
+            && map.contains_key("base_size")
+        {
+            let size = map.get("base_size").unwrap();
+            let size = size.parse::<u32>().unwrap_or(640);
+            if self.size.contains(&size) { size } else { 640 }
+        } else {
+            640
+        };
+        let image_size = if let Some(map) = &mes.metadata
+            && map.contains_key("image_size")
+        {
+            let size = map.get("image_size").unwrap();
+            let size = size.parse::<u32>().unwrap_or(640);
+            if self.size.contains(&size) { size } else { 640 }
+        } else {
+            640
+        };
+        let crop_mode = if let Some(map) = &mes.metadata
+            && map.contains_key("crop_mode")
+        {
+            let size = map.get("crop_mode").unwrap();
+            size.parse::<bool>().unwrap_or(false)
+        } else {
+            false
+        };
+        let seed = match mes.seed {
+            None => 34562u64,
+            Some(s) => s as u64,
+        };
+        let mut logit_processor = get_logit_processor(mes.temperature, mes.top_p, None, seed);
         let (mut input_ids, images_ori, image_crop, images_seq_mask, images_spatial_crop_t) = self
             .processor
-            .process_info(&mes, &self.tokenizer, 640, 640, true)?;
+            .process_info(&mes, &self.tokenizer, base_size, image_size, crop_mode)?;
 
         let mut seqlen_offset = 0;
         let mut seq_len = input_ids.dim(1)?;
@@ -192,6 +233,6 @@ impl GenerateModel for DeepseekOCRGenerateModel {
             }
             self.deepseekocr_model.clear_kv_cache();
         };
-        Ok(stream)
+        Ok(Box::new(Box::pin(stream)))
     }
 }

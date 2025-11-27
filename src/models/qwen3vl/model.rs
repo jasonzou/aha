@@ -559,7 +559,6 @@ pub struct Qwen3VLTextAttention {
     num_key_value_heads: usize,
     num_kv_groups: usize,
     head_dim: usize,
-    hidden_size: usize,
     scaling: f64,
     kv_cache: Option<(Tensor, Tensor)>,
 }
@@ -568,7 +567,7 @@ impl Qwen3VLTextAttention {
     pub fn new(config: Qwen3VLTextConfig, vb: VarBuilder) -> Result<Self> {
         let hidden_size = config.hidden_size;
         let num_attention_heads = config.num_attention_heads;
-        let head_dim = hidden_size / num_attention_heads;
+        let head_dim = config.head_dim;
         let num_key_value_heads = config.num_key_value_heads;
         let num_kv_groups = num_attention_heads / num_key_value_heads;
         let scaling = 1f64 / f64::sqrt(head_dim as f64);
@@ -576,7 +575,7 @@ impl Qwen3VLTextAttention {
             let q_proj = linear(hidden_size, num_attention_heads * head_dim, vb.pp("q_proj"))?;
             let k_proj = linear(hidden_size, num_key_value_heads * head_dim, vb.pp("k_proj"))?;
             let v_proj = linear(hidden_size, num_key_value_heads * head_dim, vb.pp("v_proj"))?;
-            let o_proj = linear(hidden_size, hidden_size, vb.pp("o_proj"))?;
+            let o_proj = linear(num_attention_heads * head_dim, hidden_size, vb.pp("o_proj"))?;
             (q_proj, k_proj, v_proj, o_proj)
         } else {
             let q_proj =
@@ -585,7 +584,8 @@ impl Qwen3VLTextAttention {
                 linear_no_bias(hidden_size, num_key_value_heads * head_dim, vb.pp("k_proj"))?;
             let v_proj =
                 linear_no_bias(hidden_size, num_key_value_heads * head_dim, vb.pp("v_proj"))?;
-            let o_proj = linear_no_bias(hidden_size, hidden_size, vb.pp("o_proj"))?;
+            let o_proj =
+                linear_no_bias(num_attention_heads * head_dim, hidden_size, vb.pp("o_proj"))?;
             (q_proj, k_proj, v_proj, o_proj)
         };
         let q_norm = rms_norm(head_dim, config.rms_norm_eps, vb.pp("q_norm"))?;
@@ -601,7 +601,6 @@ impl Qwen3VLTextAttention {
             num_key_value_heads,
             num_kv_groups,
             head_dim,
-            hidden_size,
             scaling,
             kv_cache: None,
         })
@@ -652,7 +651,8 @@ impl Qwen3VLTextAttention {
             attention_mask,
             self.scaling,
         )?;
-        let attn_output = attn_output.reshape((b_sz, q_len, self.hidden_size))?;
+        let attn_output =
+            attn_output.reshape((b_sz, q_len, self.num_attention_heads * self.head_dim))?;
         let attn_output = attn_output.apply(&self.o_proj)?;
         Ok(attn_output)
     }
@@ -738,7 +738,7 @@ impl Qwen3VLTextModel {
             layers.push(layer)
         }
         let norm = rms_norm(config.hidden_size, config.rms_norm_eps, vb.pp("norm"))?;
-        let head_dim = config.hidden_size / config.num_attention_heads;
+        let head_dim = config.head_dim;
         let rotary_emb = Qwen3VLTextRotaryEmbedding::new(head_dim, config.rope_theta);
         let mrope_section = config.rope_scaling.mrope_section.clone();
         Ok(Self {
@@ -823,10 +823,11 @@ pub struct Qwen3VLModel {
 
 impl Qwen3VLModel {
     pub fn new(config: Qwen3VLConfig, vb: VarBuilder) -> Result<Self> {
+        let vb_m = vb.pp("model");
         let config = config.clone();
-        let visual = Qwen3VLVisionModel::new(config.vision_config.clone(), vb.pp("visual"))?;
+        let visual = Qwen3VLVisionModel::new(config.vision_config.clone(), vb_m.pp("visual"))?;
         let language_model =
-            Qwen3VLTextModel::new(config.text_config.clone(), vb.pp("language_model"))?;
+            Qwen3VLTextModel::new(config.text_config.clone(), vb_m.pp("language_model"))?;
         let lm_head = if config.tie_word_embeddings {
             Linear::new(language_model.embed_tokens.embeddings().clone(), None)
         } else {

@@ -47,7 +47,6 @@ impl<'a> Qwen3VLGenerateModel<'a> {
         let pre_processor = Qwen3VLProcessor::new(path, &device, dtype)?;
         let model_list = find_type_files(path, "safetensors")?;
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&model_list, dtype, &device)? };
-        let vb = vb.pp("model");
         let qwen3_vl = Qwen3VLModel::new(cfg, vb)?;
         let generation_config_path = path.to_string() + "/generation_config.json";
         let generation_config: Qwen3VLGenerationConfig =
@@ -76,7 +75,12 @@ impl<'a> GenerateModel for Qwen3VLGenerateModel<'a> {
             Some(top_p) => top_p,
         };
         let top_k = self.generation_config.top_k;
-        let mut logit_processor = get_logit_processor(Some(temperature), Some(top_p), Some(top_k));
+        let seed = match mes.seed {
+            None => 34562u64,
+            Some(s) => s as u64,
+        };
+        let mut logit_processor =
+            get_logit_processor(Some(temperature), Some(top_p), Some(top_k), seed);
         let mes_render = self.chat_template.apply_chat_template(&mes)?;
         let input = self.pre_processor.process_info(&mes, &mes_render)?;
         let mut input_ids = self
@@ -123,7 +127,14 @@ impl<'a> GenerateModel for Qwen3VLGenerateModel<'a> {
     fn generate_stream(
         &mut self,
         mes: ChatCompletionParameters,
-    ) -> Result<impl Stream<Item = Result<ChatCompletionChunkResponse, anyhow::Error>>> {
+    ) -> Result<
+        Box<
+            dyn Stream<Item = Result<ChatCompletionChunkResponse, anyhow::Error>>
+                + Send
+                + Unpin
+                + '_,
+        >,
+    > {
         let temperature = match mes.temperature {
             None => self.generation_config.temperature,
             Some(tem) => tem,
@@ -133,7 +144,12 @@ impl<'a> GenerateModel for Qwen3VLGenerateModel<'a> {
             Some(top_p) => top_p,
         };
         let top_k = self.generation_config.top_k;
-        let mut logit_processor = get_logit_processor(Some(temperature), Some(top_p), Some(top_k));
+        let seed = match mes.seed {
+            None => 34562u64,
+            Some(s) => s as u64,
+        };
+        let mut logit_processor =
+            get_logit_processor(Some(temperature), Some(top_p), Some(top_k), seed);
         let mes_render = self.chat_template.apply_chat_template(&mes)?;
         let input = self.pre_processor.process_info(&mes, &mes_render)?;
         let mut input_ids = self
@@ -199,6 +215,6 @@ impl<'a> GenerateModel for Qwen3VLGenerateModel<'a> {
             }
             self.qwen3_vl.clear_kv_cache();
         };
-        Ok(stream)
+        Ok(Box::new(Box::pin(stream)))
     }
 }

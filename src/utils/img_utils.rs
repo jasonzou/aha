@@ -10,19 +10,21 @@ use candle_core::{DType, Device, Tensor};
 use image::{DynamicImage, ImageBuffer, ImageReader, Rgb, RgbImage, imageops};
 
 pub fn load_image_from_url(url: &str) -> Result<DynamicImage> {
-    let response = reqwest::blocking::get(url)
-        .map_err(|e| anyhow!(format!("Failed to fetch image from url: {}", e)))?;
-    let bytes = response
-        .bytes()
-        .map_err(|e| anyhow!(format!("Failed to get image bytes: {}", e)))?;
+    tokio::task::block_in_place(|| {
+        let response = reqwest::blocking::get(url)
+            .map_err(|e| anyhow!(format!("Failed to fetch image from url: {}", e)))?;
+        let bytes = response
+            .bytes()
+            .map_err(|e| anyhow!(format!("Failed to get image bytes: {}", e)))?;
 
-    let cursor = Cursor::new(bytes);
-    let img = ImageReader::new(cursor)
-        .with_guessed_format()
-        .map_err(|e| anyhow!(format!("Failed to read image format: {}", e)))?
-        .decode()
-        .map_err(|e| anyhow!(format!("Failed to decode image: {}", e)))?;
-    Ok(img)
+        let cursor = Cursor::new(bytes);
+        let img = ImageReader::new(cursor)
+            .with_guessed_format()
+            .map_err(|e| anyhow!(format!("Failed to read image format: {}", e)))?
+            .decode()
+            .map_err(|e| anyhow!(format!("Failed to decode image: {}", e)))?;
+        Ok(img)
+    })
 }
 
 pub fn load_image_from_base64(base64_data: &str) -> Result<DynamicImage> {

@@ -610,7 +610,7 @@ impl CLIPVisionEmbeddings {
     }
 
     fn get_abs_pos(&self, tgt_size: usize) -> Result<Tensor> {
-        println!("self.pos_embeds: {:?}", self.pos_embeds);
+        // println!("self.pos_embeds: {:?}", self.pos_embeds);
         let abs_pos_new = self.pos_embeds.clone();
         let (len, dim) = abs_pos_new.dims2()?;
         let src_size = ((len - 1) as f32).sqrt() as usize;

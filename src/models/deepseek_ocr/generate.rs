@@ -86,10 +86,6 @@ impl GenerateModel for DeepseekOCRGenerateModel {
         } else {
             false
         };
-        println!(
-            "base_size: {}, image_size: {}, crop_mode: {}",
-            base_size, image_size, crop_mode
-        );
         let mut logit_processor = get_logit_processor(mes.temperature, mes.top_p, None);
         let (mut input_ids, images_ori, image_crop, images_seq_mask, images_spatial_crop_t) = self
             .processor

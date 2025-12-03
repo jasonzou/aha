@@ -221,6 +221,14 @@ pub fn masked_scatter_dim0(original: &Tensor, replace: &Tensor, mask: &Tensor) -
     Ok(original)
 }
 
+pub fn get_not_equal_mask(input_ids: &Tensor, token_ids: u32) -> Result<Tensor> {
+    let image_token_id_tensor = Tensor::new(vec![token_ids], input_ids.device())?;
+    let mask = input_ids
+        .broadcast_ne(&image_token_id_tensor)?
+        .to_dtype(candle_core::DType::U32)?;
+    Ok(mask)
+}
+
 pub fn get_equal_mask(input_ids: &Tensor, token_ids: u32) -> Result<Tensor> {
     let image_token_id_tensor = Tensor::new(vec![token_ids], input_ids.device())?;
     let mask = input_ids
@@ -229,10 +237,16 @@ pub fn get_equal_mask(input_ids: &Tensor, token_ids: u32) -> Result<Tensor> {
     Ok(mask)
 }
 
-pub fn get_vision_next_indices(input_ids: &Tensor, token_id: u32) -> Result<Tensor> {
+pub fn get_eq_indices(input_ids: &Tensor, token_id: u32) -> Result<Tensor> {
     // input_ids -> shape: (seq_len)
     let mask = get_equal_mask(input_ids, token_id)?;
     let indices = nonzero_index(&mask)?;
+    Ok(indices)
+}
+
+pub fn get_vision_next_indices(input_ids: &Tensor, token_id: u32) -> Result<Tensor> {
+    // input_ids -> shape: (seq_len)
+    let indices = get_eq_indices(input_ids, token_id)?;
     let indices = indices.broadcast_add(&Tensor::new(vec![1u32], input_ids.device())?)?;
     Ok(indices)
 }
@@ -384,9 +398,9 @@ pub fn interpolate_linear_1d(
     align_corner: Option<bool>,
 ) -> Result<Tensor> {
     // t: [b, channels, features]
-    if t.rank() < 3 {
+    if t.rank() != 3 {
         return Err(anyhow::anyhow!(
-            "Input rank must have at least 3 dimensions"
+            "Input rank must have equal to 3 dimensions"
         ));
     }
     let shape = t.dims();
@@ -394,19 +408,13 @@ pub fn interpolate_linear_1d(
     if orig_size == target_size {
         return Ok(t.clone());
     }
-    let mut reshaped = t.clone();
-    if shape.len() > 3 {
-        let bs = shape[0];
-        let channels = shape[1..shape.len() - 1].iter().product::<usize>();
-        reshaped = reshaped.reshape((bs, channels, orig_size))?;
-    }
-    let (bs, channels, _) = reshaped.dims3()?;
+    let (bs, channels, _) = t.dims3()?;
     let mut output = Tensor::zeros((bs, channels, target_size), t.dtype(), t.device())?;
     let coords = compute_1d_coords(orig_size, target_size, align_corner)?;
 
     for b in 0..bs {
         for c in 0..channels {
-            let input_slice = reshaped.i((b, c))?;
+            let input_slice = t.i((b, c))?;
             let mut out_i = Vec::new();
             // for x_out in 0..target_size {
             for &coord in coords.iter().take(target_size) {
@@ -424,14 +432,86 @@ pub fn interpolate_linear_1d(
             output = output.slice_assign(&[(b..b + 1), (c..c + 1), (0..target_size)], &out_i)?;
         }
     }
-    if shape.len() != 3 {
-        let mut new_shape = shape.to_vec();
-        let last_dim = new_shape.len() - 1;
-        new_shape[last_dim] = target_size;
-        output = output.reshape(new_shape)?
-    }
     output = output.contiguous()?;
     Ok(output)
+}
+
+pub fn interpolate_bilinear(
+    input: &Tensor,
+    target_size: (usize, usize),
+    align_corner: Option<bool>,
+) -> Result<Tensor> {
+    // input: [b, channels, height, width]
+    if input.rank() != 4 {
+        return Err(anyhow::anyhow!(
+            "Input rank must have equal to 4 dimensions [b, c, h, w]"
+        ));
+    }
+
+    let (bs, channels, input_height, input_width) = input.dims4()?;
+    let (target_height, target_width) = target_size;
+
+    // If size is the same, return clone
+    if input_height == target_height && input_width == target_width {
+        return Ok(input.clone());
+    }
+
+    let align_corners = align_corner.unwrap_or(false);
+
+    // Compute scaling factors
+    let height_scale = if align_corners && target_height > 1 {
+        (input_height - 1) as f64 / (target_height - 1) as f64
+    } else {
+        input_height as f64 / target_height as f64
+    };
+
+    let width_scale = if align_corners && target_width > 1 {
+        (input_width - 1) as f64 / (target_width - 1) as f64
+    } else {
+        input_width as f64 / target_width as f64
+    };
+    let dim0 = bs * channels;
+    let input_3dim = input.reshape((dim0, input_height, input_width))?;
+    let input_data = input_3dim.to_dtype(DType::F32)?.to_vec3::<f32>()?;
+    let mut output_data = vec![vec![vec![0.0f32; target_width]; target_height]; dim0];
+
+    for c in 0..dim0 {
+        for out_y in 0..target_height {
+            let src_y = if align_corners {
+                out_y as f64 * height_scale
+            } else {
+                (out_y as f64 + 0.5) * height_scale - 0.5
+            };
+            let src_y = src_y.max(0.0).min((input_height - 1) as f64);
+            let y0 = src_y.floor() as usize;
+            let y1 = (y0 + 1).min(input_height - 1);
+            let dy = (src_y - y0 as f64) as f32;
+            for out_x in 0..target_width {
+                let src_x = if align_corners {
+                    out_x as f64 * width_scale
+                } else {
+                    (out_x as f64 + 0.5) * width_scale - 0.5
+                };
+                let src_x = src_x.max(0.0).min((input_width - 1) as f64);
+                let x0 = src_x.floor() as usize;
+                let x1 = (x0 + 1).min(input_width - 1);
+                let q00 = input_data[c][y0][x0];
+                let q01 = input_data[c][y0][x1];
+                let q10 = input_data[c][y1][x0];
+                let q11 = input_data[c][y1][x1];
+                let dx = (src_x - x0 as f64) as f32;
+                let interpolated = q00 * (1.0 - dx) * (1.0 - dy)
+                    + q01 * dx * (1.0 - dy)
+                    + q10 * (1.0 - dx) * dy
+                    + q11 * dx * dy;
+                output_data[c][out_y][out_x] = interpolated;
+            }
+        }
+    }
+    let output = Tensor::new(output_data, input.device())?
+        .reshape((bs, channels, target_height, target_width))?
+        .to_dtype(input.dtype())?;
+    Ok(output.contiguous()?)
 }
 
 fn compute_scale(input_size: usize, output_size: usize, align_corners: bool) -> f64 {

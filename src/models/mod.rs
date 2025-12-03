@@ -1,5 +1,6 @@
 pub mod common;
 pub mod deepseek_ocr;
+pub mod hunyuan_ocr;
 pub mod minicpm4;
 pub mod qwen2_5vl;
 pub mod qwen3vl;
@@ -12,7 +13,8 @@ use anyhow::Result;
 use rocket::futures::Stream;
 
 use crate::models::{
-    deepseek_ocr::generate::DeepseekOCRGenerateModel, minicpm4::generate::MiniCPMGenerateModel,
+    deepseek_ocr::generate::DeepseekOCRGenerateModel,
+    hunyuan_ocr::generate::HunyuanOCRGenerateModel, minicpm4::generate::MiniCPMGenerateModel,
     qwen2_5vl::generate::Qwen2_5VLGenerateModel, qwen3vl::generate::Qwen3VLGenerateModel,
 };
 
@@ -34,6 +36,8 @@ pub enum WhichModel {
     Qwen3vl32B,
     #[value(name = "deepseek-ocr")]
     DeepSeekOCR,
+    #[value(name = "hunyuan-ocr")]
+    HunyuanOCR,
 }
 
 pub trait GenerateModel {
@@ -56,6 +60,7 @@ pub enum ModelInstance<'a> {
     Qwen2_5VL(Qwen2_5VLGenerateModel<'a>),
     Qwen3VL(Qwen3VLGenerateModel<'a>),
     DeepSeekOCR(DeepseekOCRGenerateModel),
+    HunyuanOCR(HunyuanOCRGenerateModel<'a>),
 }
 
 impl<'a> GenerateModel for ModelInstance<'a> {
@@ -65,6 +70,7 @@ impl<'a> GenerateModel for ModelInstance<'a> {
             ModelInstance::Qwen2_5VL(model) => model.generate(mes),
             ModelInstance::Qwen3VL(model) => model.generate(mes),
             ModelInstance::DeepSeekOCR(model) => model.generate(mes),
+            ModelInstance::HunyuanOCR(model) => model.generate(mes),
         }
     }
 
@@ -84,6 +90,7 @@ impl<'a> GenerateModel for ModelInstance<'a> {
             ModelInstance::Qwen2_5VL(model) => model.generate_stream(mes),
             ModelInstance::Qwen3VL(model) => model.generate_stream(mes),
             ModelInstance::DeepSeekOCR(model) => model.generate_stream(mes),
+            ModelInstance::HunyuanOCR(model) => model.generate_stream(mes),
         }
     }
 }
@@ -121,6 +128,10 @@ pub fn load_model(model_type: WhichModel, path: &str) -> Result<ModelInstance<'_
         WhichModel::DeepSeekOCR => {
             let model = DeepseekOCRGenerateModel::init(path, None, None)?;
             ModelInstance::DeepSeekOCR(model)
+        }
+        WhichModel::HunyuanOCR => {
+            let model = HunyuanOCRGenerateModel::init(path, None, None)?;
+            ModelInstance::HunyuanOCR(model)
         }
     };
     Ok(model)

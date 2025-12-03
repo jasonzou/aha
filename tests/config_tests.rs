@@ -1,7 +1,7 @@
 use aha::models::{
-    deepseek_ocr::config::DeepseekOCRConfig, minicpm4::config::MiniCPM4Config,
-    qwen2_5vl::config::Qwen2_5VLConfig, qwen3vl::config::Qwen3VLConfig,
-    voxcpm::config::VoxCPMConfig,
+    deepseek_ocr::config::DeepseekOCRConfig, hunyuan_ocr::config::HunYuanVLConfig,
+    minicpm4::config::MiniCPM4Config, qwen2_5vl::config::Qwen2_5VLConfig,
+    qwen3vl::config::Qwen3VLConfig, voxcpm::config::VoxCPMConfig,
 };
 use anyhow::Result;
 
@@ -48,10 +48,20 @@ fn qwen3vl_config() -> Result<()> {
 
 #[test]
 fn deepseek_ocr_config() -> Result<()> {
-    // cargo test -F cuda qwen3vl_config -r -- --nocapture
+    // cargo test -F cuda deepseek_ocr_config -r -- --nocapture
     let model_path = "/home/jhq/huggingface_model/deepseek-ai/DeepSeek-OCR/";
     let config_path = model_path.to_string() + "/config.json";
     let config: DeepseekOCRConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
+    println!("{:?}", config);
+    Ok(())
+}
+
+#[test]
+fn hunyuan_ocr_config() -> Result<()> {
+    // cargo test -F cuda hunyuan_ocr_config -r -- --nocapture
+    let model_path = "/home/jhq/huggingface_model/Tencent-Hunyuan/HunyuanOCR/";
+    let config_path = model_path.to_string() + "/config.json";
+    let config: HunYuanVLConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
     println!("{:?}", config);
     Ok(())
 }

@@ -2,6 +2,8 @@ use anyhow::Result;
 use candle_core::{D, DType, Device, IndexOp, Tensor};
 use candle_transformers::models::deepseek2::SplitOp;
 
+use crate::utils::tensor_utils::{index_select_2d, split_tensor};
+
 pub fn compute_default_rope_parameters(dim: usize, base: f32) -> Vec<f32> {
     let inv_freq: Vec<f32> = (0..dim)
         .step_by(2)
@@ -302,4 +304,46 @@ impl RoPE {
         let sin = emb.sin()?;
         Ok((cos, sin))
     }
+}
+
+pub fn get_xd_cos_sin(
+    cos: &Tensor,
+    sin: &Tensor,
+    position_ids: &Tensor,
+    xdrope_section: Vec<usize>,
+) -> Result<(Tensor, Tensor)> {
+    let x_dim = xdrope_section.len();
+    // position_ids: (bs, 4, seq_len)
+    let mut cos_vec = vec![];
+    let mut sin_vec = vec![];
+    let bs = position_ids.dim(0)?;
+    for i in 0..bs {
+        let pos_i = position_ids.i(i)?;
+        let cos_i = index_select_2d(cos, &pos_i)?;
+        let sin_i = index_select_2d(sin, &pos_i)?;
+        cos_vec.push(cos_i);
+        sin_vec.push(sin_i);
+    }
+    // (bs, 4, seq_len, dim) -> (bs, seq_len, 4, dim)
+    let cos = Tensor::stack(&cos_vec, 0)?
+        .permute((0, 2, 1, 3))?
+        .contiguous()?;
+    let sin = Tensor::stack(&sin_vec, 0)?
+        .permute((0, 2, 1, 3))?
+        .contiguous()?;
+    let xdrope_section: Vec<usize> = xdrope_section.iter().map(|&i| i * 2).collect();
+    let cos_select: Vec<Tensor> = split_tensor(&cos, &xdrope_section, D::Minus1)?
+        .iter()
+        .enumerate()
+        .map(|(i, m)| m.i((.., .., i % x_dim)).unwrap())
+        .collect();
+    let sin_select: Vec<Tensor> = split_tensor(&sin, &xdrope_section, D::Minus1)?
+        .iter()
+        .enumerate()
+        .map(|(i, m)| m.i((.., .., i % x_dim)).unwrap())
+        .collect();
+
+    let cos = Tensor::cat(&cos_select, D::Minus1)?;
+    let sin = Tensor::cat(&sin_select, D::Minus1)?;
+    Ok((cos, sin))
 }

@@ -11,10 +11,10 @@ use crate::{
     chat_template::ChatTemplate,
     models::{
         GenerateModel,
-        qwen3vl::{
-            config::{Qwen3VLConfig, Qwen3VLGenerationConfig},
-            model::Qwen3VLModel,
-            processor::Qwen3VLProcessor,
+        hunyuan_ocr::{
+            config::{HunYuanVLConfig, HunyuanOCRGenerationConfig},
+            model::HunyuanVLModel,
+            processor::HunyuanVLProcessor,
         },
     },
     tokenizer::TokenizerModel,
@@ -24,49 +24,49 @@ use crate::{
     },
 };
 
-pub struct Qwen3VLGenerateModel<'a> {
+pub struct HunyuanOCRGenerateModel<'a> {
     chat_template: ChatTemplate<'a>,
     tokenizer: TokenizerModel,
-    pre_processor: Qwen3VLProcessor,
-    qwen3_vl: Qwen3VLModel,
+    pre_processor: HunyuanVLProcessor,
+    hunyuan_vl: HunyuanVLModel,
     device: Device,
     eos_token_id1: u32,
     eos_token_id2: u32,
-    generation_config: Qwen3VLGenerationConfig,
+    generation_config: HunyuanOCRGenerationConfig,
     model_name: String,
 }
 
-impl<'a> Qwen3VLGenerateModel<'a> {
+impl<'a> HunyuanOCRGenerateModel<'a> {
     pub fn init(path: &str, device: Option<&Device>, dtype: Option<DType>) -> Result<Self> {
         let chat_template = ChatTemplate::init(path)?;
         let tokenizer = TokenizerModel::init(path)?;
         let config_path = path.to_string() + "/config.json";
-        let cfg: Qwen3VLConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
+        let cfg: HunYuanVLConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
         let device = get_device(device);
-        let cfg_dtype = cfg.text_config.dtype.as_str();
+        let cfg_dtype = cfg.dtype.as_str();
         let dtype = get_dtype(dtype, cfg_dtype);
-        let pre_processor = Qwen3VLProcessor::new(path, &device, dtype)?;
+        let pre_processor = HunyuanVLProcessor::new(path, &device, dtype)?;
         let model_list = find_type_files(path, "safetensors")?;
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&model_list, dtype, &device)? };
-        let qwen3_vl = Qwen3VLModel::new(cfg, vb)?;
+        let hunyuan_vl = HunyuanVLModel::new(vb, cfg.clone())?;
         let generation_config_path = path.to_string() + "/generation_config.json";
-        let generation_config: Qwen3VLGenerationConfig =
+        let generation_config: HunyuanOCRGenerationConfig =
             serde_json::from_slice(&std::fs::read(generation_config_path)?)?;
         Ok(Self {
             chat_template,
             tokenizer,
             pre_processor,
-            qwen3_vl,
+            hunyuan_vl,
             device,
             eos_token_id1: generation_config.eos_token_id[0] as u32,
             eos_token_id2: generation_config.eos_token_id[1] as u32,
             generation_config,
-            model_name: "qwen3vl".to_string(),
+            model_name: "hunyuan_ocr".to_string(),
         })
     }
 }
 
-impl<'a> GenerateModel for Qwen3VLGenerateModel<'a> {
+impl<'a> GenerateModel for HunyuanOCRGenerateModel<'a> {
     fn generate(&mut self, mes: ChatCompletionParameters) -> Result<ChatCompletionResponse> {
         let temperature = match mes.temperature {
             None => self.generation_config.temperature,
@@ -84,27 +84,25 @@ impl<'a> GenerateModel for Qwen3VLGenerateModel<'a> {
         let mut logit_processor =
             get_logit_processor(Some(temperature), Some(top_p), Some(top_k), seed);
         let mes_render = self.chat_template.apply_chat_template(&mes)?;
-        let input = self.pre_processor.process_info(&mes, &mes_render)?;
-        let mut input_ids = self
-            .tokenizer
-            .text_encode(input.replace_text.clone(), &self.device)?;
+        let data = self
+            .pre_processor
+            .process_info(&mes, &self.tokenizer, &mes_render)?;
+        let mut input_ids = data.input_ids;
+        let mut position_ids = Some(&data.position_ids);
+        let mut image_mask = Some(&data.image_mask);
+        let mut pixel_values = data.pixel_values;
+        let mut image_grid_thw = data.image_grid_thw;
         let mut seq_len = input_ids.dim(1)?;
         let mut seqlen_offset = 0;
-        let mut pixel_values = input.pixel_values.as_ref();
-        let image_grid_thw = input.image_grid_thw.as_ref();
-        let mut pixel_values_video = input.pixel_values_video.as_ref();
-        let video_grid_thw = input.video_grid_thw.as_ref();
-        let mut cache_position = Tensor::arange(0u32, seq_len as u32, &self.device)?;
-        let mut generate = Vec::new();
+        let mut generate: Vec<u32> = Vec::new();
         let sample_len = mes.max_tokens.unwrap_or(1024);
         for _ in 0..sample_len {
-            let logits = self.qwen3_vl.forward(
+            let logits = self.hunyuan_vl.forward(
                 &input_ids,
-                pixel_values,
-                image_grid_thw,
-                pixel_values_video,
-                video_grid_thw,
-                Some(&cache_position),
+                pixel_values.as_ref(),
+                image_grid_thw.as_ref(),
+                image_mask,
+                position_ids,
                 seqlen_offset,
             )?;
             let logits = logits.squeeze(0)?.squeeze(0)?.to_dtype(DType::F32)?;
@@ -116,12 +114,13 @@ impl<'a> GenerateModel for Qwen3VLGenerateModel<'a> {
             seqlen_offset += seq_len;
             seq_len = 1;
             input_ids = Tensor::from_vec(vec![next_token], (1, 1), &self.device)?;
-            cache_position = Tensor::from_vec(vec![seqlen_offset as u32], 1, &self.device)?;
+            position_ids = None;
+            image_mask = None;
             pixel_values = None;
-            pixel_values_video = None;
+            image_grid_thw = None;
         }
         let res = self.tokenizer.token_decode(generate)?;
-        self.qwen3_vl.clear_kv_cache();
+        self.hunyuan_vl.clear_kv_cache();
         let response = build_completion_response(res, &self.model_name);
         Ok(response)
     }
@@ -153,32 +152,27 @@ impl<'a> GenerateModel for Qwen3VLGenerateModel<'a> {
         let mut logit_processor =
             get_logit_processor(Some(temperature), Some(top_p), Some(top_k), seed);
         let mes_render = self.chat_template.apply_chat_template(&mes)?;
-        let input = self.pre_processor.process_info(&mes, &mes_render)?;
-        let mut input_ids = self
-            .tokenizer
-            .text_encode(input.replace_text.clone(), &self.device)?;
-        let mut seq_len = input_ids.dim(1)?;
+        let data = self
+            .pre_processor
+            .process_info(&mes, &self.tokenizer, &mes_render)?;
+
         let mut seqlen_offset = 0;
-        let pixel_values = input.pixel_values.clone();
-        let image_grid_thw = input.image_grid_thw.clone();
-        let pixel_values_video = input.pixel_values_video.clone();
-        let video_grid_thw = input.video_grid_thw.clone();
-        let mut cache_position = Tensor::arange(0u32, seq_len as u32, &self.device)?;
         let sample_len = mes.max_tokens.unwrap_or(1024);
         let stream = stream! {
             let mut error_tokens = Vec::new();
-            let mut pixel_values = pixel_values.as_ref();
-            let image_grid_thw = image_grid_thw.as_ref();
-            let mut pixel_values_video = pixel_values_video.as_ref();
-            let video_grid_thw = video_grid_thw.as_ref();
+            let mut input_ids = data.input_ids;
+            let mut position_ids = Some(&data.position_ids);
+            let mut image_mask = Some(&data.image_mask);
+            let mut pixel_values = data.pixel_values;
+            let mut image_grid_thw = data.image_grid_thw;
+            let mut seq_len = input_ids.dim(1)?;
             for _ in 0..sample_len {
-            let logits = self.qwen3_vl.forward(
+            let logits = self.hunyuan_vl.forward(
                 &input_ids,
-                pixel_values,
-                image_grid_thw,
-                pixel_values_video,
-                video_grid_thw,
-                Some(&cache_position),
+                pixel_values.as_ref(),
+                image_grid_thw.as_ref(),
+                image_mask,
+                position_ids,
                 seqlen_offset,
             )?;
             let logits = logits.squeeze(0)?.squeeze(0)?.to_dtype(DType::F32)?;
@@ -197,9 +191,10 @@ impl<'a> GenerateModel for Qwen3VLGenerateModel<'a> {
                     seqlen_offset += seq_len;
                     seq_len = 1;
                     input_ids = Tensor::from_vec(vec![next_token], (1, 1), &self.device)?;
-                    cache_position = Tensor::from_vec(vec![seqlen_offset as u32], 1, &self.device)?;
+                    position_ids = None;
+                    image_mask = None;
                     pixel_values = None;
-                    pixel_values_video = None;
+                    image_grid_thw = None;
                     continue;
                 }
                 error_tokens.clear();
@@ -211,11 +206,12 @@ impl<'a> GenerateModel for Qwen3VLGenerateModel<'a> {
                 seqlen_offset += seq_len;
                 seq_len = 1;
                 input_ids = Tensor::from_vec(vec![next_token], (1, 1), &self.device)?;
-                cache_position = Tensor::from_vec(vec![seqlen_offset as u32], 1, &self.device)?;
+                position_ids = None;
+                image_mask = None;
                 pixel_values = None;
-                pixel_values_video = None;
+                image_grid_thw = None;
             }
-            self.qwen3_vl.clear_kv_cache();
+            self.hunyuan_vl.clear_kv_cache();
         };
         Ok(Box::new(Box::pin(stream)))
     }

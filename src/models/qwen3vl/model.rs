@@ -7,7 +7,7 @@ use candle_nn::{
 
 use crate::{
     models::{
-        common::{MLPNoBias, eager_attention_forward},
+        common::{GateUpDownMLP, eager_attention_forward},
         qwen3vl::config::{Qwen3VLConfig, Qwen3VLTextConfig, Qwen3VLVisionConfig},
     },
     position_embed::rope::{
@@ -664,7 +664,7 @@ impl Qwen3VLTextAttention {
 
 pub struct Qwen3VLTextDecoderLayer {
     self_attn: Qwen3VLTextAttention,
-    mlp: MLPNoBias,
+    mlp: GateUpDownMLP,
     input_layernorm: RmsNorm,
     post_attention_layernorm: RmsNorm,
 }
@@ -672,11 +672,12 @@ pub struct Qwen3VLTextDecoderLayer {
 impl Qwen3VLTextDecoderLayer {
     pub fn new(config: Qwen3VLTextConfig, vb: VarBuilder) -> Result<Self> {
         let self_attn = Qwen3VLTextAttention::new(config.clone(), vb.pp("self_attn"))?;
-        let mlp = MLPNoBias::new(
+        let mlp = GateUpDownMLP::new(
             vb.pp("mlp"),
             config.hidden_size,
             config.intermediate_size,
             config.hidden_act,
+            false,
         )?;
         let input_layernorm = rms_norm(
             config.hidden_size,

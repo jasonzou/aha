@@ -3,6 +3,8 @@ pub mod img_utils;
 pub mod tensor_utils;
 pub mod video_utils;
 
+use std::process::Command;
+
 use aha_openai_dive::v1::resources::{
     chat::{
         ChatCompletionChoice, ChatCompletionChunkChoice, ChatCompletionChunkResponse,
@@ -31,6 +33,33 @@ pub fn get_device(device: Option<&Device>) -> Device {
     }
 }
 
+pub fn get_gpu_sm_arch() -> Result<f32> {
+    let output = Command::new("nvidia-smi")
+        .arg("--query-gpu=compute_cap")
+        .arg("--format=csv,noheader")
+        .output()
+        .map_err(|e| anyhow::anyhow!(format!("Failed to execute nvidia-smi: {}", e)))?;
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(format!(
+            "nvidia-smi failed with status: {}\nError: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let output_str = output_str.trim();
+    let sm_float = match output_str.parse::<f32>() {
+        Ok(num) => num,
+        Err(_) => {
+            return Err(anyhow::anyhow!(format!(
+                "gpr sm arch: {} parse float32 error",
+                output_str
+            )));
+        }
+    };
+    Ok(sm_float)
+}
+
 pub fn get_dtype(dtype: Option<DType>, cfg_dtype: &str) -> DType {
     match dtype {
         Some(d) => d,
@@ -41,7 +70,16 @@ pub fn get_dtype(dtype: Option<DType>, cfg_dtype: &str) -> DType {
                     "float32" | "float" => DType::F32,
                     "float64" | "double" => DType::F64,
                     "float16" => DType::F16,
-                    "bfloat16" => DType::BF16,
+                    "bfloat16" => {
+                        let arch = get_gpu_sm_arch();
+                        match arch {
+                            Err(_) => DType::F16,
+                            Ok(a) => {
+                                // nvidia显卡sm架构>=8.0的才支持BF16
+                                if a >= 8.0 { DType::BF16 } else { DType::F16 }
+                            }
+                        }
+                    }
                     "uint8" => DType::U8,
                     "int8" | "int16" | "int32" | "int64" => DType::I64,
                     _ => DType::F32,
@@ -257,6 +295,7 @@ pub fn get_logit_processor(
     top_k: Option<usize>,
     seed: u64,
 ) -> LogitsProcessor {
+    let temperature = temperature.and_then(|v| if v < 1e-7 { None } else { Some(v) });
     match top_k {
         None => LogitsProcessor::new(
             seed,

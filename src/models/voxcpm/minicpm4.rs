@@ -4,7 +4,7 @@ use candle_nn::{Embedding, Module, RmsNorm, VarBuilder, embedding, rms_norm};
 
 use crate::{
     models::{
-        common::{AttentionNobias, MLPNoBias},
+        common::{GateUpDownMLP, NaiveAttention},
         voxcpm::config::VoxMiniCPM4Config,
     },
     position_embed::rope::compute_default_rope_parameters,
@@ -101,8 +101,8 @@ impl MiniCPMLongRoPE {
 }
 
 pub struct MiniCPMDecoderLayer {
-    self_attn: AttentionNobias,
-    mlp: MLPNoBias,
+    self_attn: NaiveAttention,
+    mlp: GateUpDownMLP,
     input_layernorm: RmsNorm,
     post_attention_layernorm: RmsNorm,
     scale_depth: f32,
@@ -112,17 +112,19 @@ pub struct MiniCPMDecoderLayer {
 
 impl MiniCPMDecoderLayer {
     pub fn new(vb: VarBuilder, cfg: &VoxMiniCPM4Config) -> Result<Self> {
-        let self_attn = AttentionNobias::new(
+        let self_attn = NaiveAttention::new(
             vb.pp("self_attn"),
             cfg.hidden_size,
             cfg.num_attention_heads,
             cfg.num_key_value_heads,
+            false,
         )?;
-        let mlp = MLPNoBias::new(
+        let mlp = GateUpDownMLP::new(
             vb.pp("mlp"),
             cfg.hidden_size,
             cfg.intermediate_size,
             candle_nn::Activation::Silu,
+            false,
         )?;
         let input_layernorm =
             rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?;
@@ -153,7 +155,7 @@ impl MiniCPMDecoderLayer {
         let xs = self.input_layernorm.forward(xs)?;
         let xs = self
             .self_attn
-            .forward(&xs, cos, sin, attention_mask, true)?;
+            .forward(&xs, Some(cos), Some(sin), attention_mask, true)?;
         let xs = if self.use_mup {
             (residual
                 + xs.affine(

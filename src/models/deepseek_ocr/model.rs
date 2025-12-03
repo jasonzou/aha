@@ -10,7 +10,7 @@ use candle_transformers::models::segment_anything::LayerNorm2d;
 
 use crate::{
     models::{
-        common::{AttentionNobias, MLPNoBias, eager_attention_forward},
+        common::{GateUpDownMLP, NaiveAttention, TwoLinearMLP, eager_attention_forward},
         deepseek_ocr::config::{DeepseekOCRConfig, DeepseekV2Config},
     },
     position_embed::rope::RoPE,
@@ -227,41 +227,11 @@ impl Attention {
     }
 }
 
-pub struct MLPBlock {
-    linear1: Linear,
-    linear2: Linear,
-    act: Activation,
-}
-
-impl MLPBlock {
-    pub fn new(
-        vb: VarBuilder,
-        embedding_dim: usize,
-        mlp_dim: usize,
-        act: Activation,
-    ) -> Result<Self> {
-        let linear1 = linear(embedding_dim, mlp_dim, vb.pp("lin1"))?;
-        let linear2 = linear(mlp_dim, embedding_dim, vb.pp("lin2"))?;
-        Ok(Self {
-            linear1,
-            linear2,
-            act,
-        })
-    }
-    pub fn forward(&self, xs: &Tensor) -> Result<Tensor> {
-        let xs = xs
-            .apply(&self.linear1)?
-            .apply(&self.act)?
-            .apply(&self.linear2)?;
-        Ok(xs)
-    }
-}
-
 pub struct Block {
     norm1: LayerNorm,
     attn: Attention,
     norm2: LayerNorm,
-    mlp: MLPBlock,
+    mlp: TwoLinearMLP,
     window_size: usize,
 }
 
@@ -300,7 +270,7 @@ impl Block {
         )?;
         let norm2 = layer_norm(dim, ln_config, vb.pp("norm2"))?;
         let mlp_dim = (dim as f32 * mlp_ratio) as usize;
-        let mlp = MLPBlock::new(vb.pp("mlp"), dim, mlp_dim, act)?;
+        let mlp = TwoLinearMLP::new(vb.pp("mlp"), dim, mlp_dim, act, true, "lin1", "lin2")?;
         Ok(Self {
             norm1,
             attn,
@@ -924,9 +894,9 @@ pub struct DeepseekV2MoE {
     // ep_size: usize,
     // experts_per_rank: usize,
     // ep_rank: usize,
-    experts: Vec<MLPNoBias>,
+    experts: Vec<GateUpDownMLP>,
     gate: MoEGate,
-    shared_experts: MLPNoBias,
+    shared_experts: GateUpDownMLP,
 }
 
 impl DeepseekV2MoE {
@@ -937,20 +907,22 @@ impl DeepseekV2MoE {
         let mut experts = Vec::new();
         let vb_experts = vb.pp("experts");
         for i in 0..config.n_routed_experts {
-            let mlp = MLPNoBias::new(
+            let mlp = GateUpDownMLP::new(
                 vb_experts.pp(i),
                 config.hidden_size,
                 config.moe_intermediate_size,
                 Activation::Silu,
+                false,
             )?;
             experts.push(mlp);
         }
         let gate = MoEGate::new(vb.pp("gate"), config)?;
-        let shared_experts = MLPNoBias::new(
+        let shared_experts = GateUpDownMLP::new(
             vb.pp("shared_experts"),
             config.hidden_size,
             config.moe_intermediate_size * config.n_shared_experts,
             Activation::Silu,
+            false,
         )?;
         Ok(Self {
             // num_experts_per_tok: config.num_experts_per_tok,
@@ -1014,7 +986,7 @@ impl Module for DeepseekV2MoE {
 
 pub enum DeepseekV2Proj {
     MOE(DeepseekV2MoE),
-    MLP(MLPNoBias),
+    MLP(GateUpDownMLP),
 }
 
 impl DeepseekV2Proj {
@@ -1033,7 +1005,7 @@ impl DeepseekV2Proj {
 }
 
 pub struct DeepseekV2DecoderLayer {
-    self_attn: AttentionNobias,
+    self_attn: NaiveAttention,
     mlp: DeepseekV2Proj,
     input_layernorm: RmsNorm,
     post_attention_layernorm: RmsNorm,
@@ -1041,22 +1013,24 @@ pub struct DeepseekV2DecoderLayer {
 
 impl DeepseekV2DecoderLayer {
     pub fn new(vb: VarBuilder, config: &DeepseekV2Config, layer_id: usize) -> Result<Self> {
-        let self_attn = AttentionNobias::new(
+        let self_attn = NaiveAttention::new(
             vb.pp("self_attn"),
             config.hidden_size,
             config.num_attention_heads,
             config.num_key_value_heads,
+            false,
         )?;
         let mlp = if layer_id >= config.first_k_dense_replace
             && layer_id.is_multiple_of(config.moe_layer_freq)
         {
             DeepseekV2Proj::MOE(DeepseekV2MoE::new(vb.pp("mlp"), config)?)
         } else {
-            DeepseekV2Proj::MLP(MLPNoBias::new(
+            DeepseekV2Proj::MLP(GateUpDownMLP::new(
                 vb.pp("mlp"),
                 config.hidden_size,
                 config.intermediate_size,
                 Activation::Silu,
+                false,
             )?)
         };
         let input_layernorm = rms_norm(

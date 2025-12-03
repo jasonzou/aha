@@ -17,9 +17,12 @@
 * VoxCPM - 面壁智能语音生成模型
 * Qwen3VL - 阿里通义千问 3 多模态大语言模型
 * DeepSeek-OCR - 深度求索光学文字识别模型
+* Hunyuan-OCR - 腾讯混元光学文字识别模型
 
 ## 计划支持
 我们持续扩展支持的模型列表，欢迎贡献！
+
+⭐ 如果这个项目对你有帮助，请给我们一个 Star！
 
 ## 环境依赖
 1. ffmpeg: 
@@ -77,6 +80,10 @@ fn main() -> Result<()> {
 git clone https://github.com/jhqxxx/aha.git
 cd aha
 # 修改测试用例中模型路径
+
+# 运行 Hunyuan-OCR 示例
+cargo test -F cuda hunyuan_ocr_generate -r -- --nocapture
+
 # 运行 DeepSeek-OCR 示例
 cargo test -F cuda deepseek_ocr_generate -r -- --nocapture
 
@@ -122,6 +129,7 @@ cargo run -F cuda -- [参数]
     * qwen3vl-8b：Qwen/Qwen3-VL-8B-Instruct 模型
     * qwen3vl-32b：Qwen/Qwen3-VL-32B-Instruct 模型
     * deepseek-ocr: deepseek-ai/DeepSeek-OCR 模型
+    * hunyuan-ocr: Tencent-Hunyuan/HunyuanOCR 模型
 * 示例：--model deepseek-ocr 或 -m qwen3vl-2b
 
 3. 权重路径
@@ -162,6 +170,7 @@ cargo run -F cuda -- [参数]
 │   ├── models
 │   │   ├── common
 │   │   ├── deepseek_ocr
+│   │   ├── hunyuan_ocr
 │   │   ├── minicpm4
 │   │   ├── qwen2_5vl
 │   │   ├── qwen3vl
@@ -170,8 +179,10 @@ cargo run -F cuda -- [参数]
 │   ├── position_embed
 │   ├── tokenizer
 │   ├── utils
+│   ├── api.rs
 │   └── lib.rs
 └── tests
+    ├── test_hunyuan_ocr.rs
     ├── test_deepseek_ocr.rs
     ├── test_minicpm4.rs
     ├── test_qwen2_5vl.rs
@@ -196,6 +207,10 @@ cargo run -F cuda -- [参数]
 2. 提交新的 Issue，包含详细描述和复现步骤
 
 ## 更新日志
+
+### v0.1.3
+* 添加 Hunyuan-OCR 模型
+
 ### v0.1.2
 * 添加 DeepSeek-OCR 模型
 
@@ -207,4 +222,3 @@ cargo run -F cuda -- [参数]
 * 支持 Qwen2.5VL, MiniCPM4, VoxCPM 模型
 
 
-⭐ 如果这个项目对你有帮助，请给我们一个 Star！

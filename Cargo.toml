@@ -37,3 +37,4 @@ cuda=["candle-nn/cuda", "candle-core/cuda", "candle-transformers/cuda"]
 
 [lints.clippy]
 needless_range_loop = "allow"
+single_range_in_vec_init = "allow"

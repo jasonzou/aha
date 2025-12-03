@@ -80,3 +80,22 @@ fn deepseekocr_weight() -> Result<()> {
     println!("model_list: {:?}", model_list);
     Ok(())
 }
+
+#[test]
+fn hunyuanocr_weight() -> Result<()> {
+    let model_path = "/home/jhq/huggingface_model/Tencent-Hunyuan/HunyuanOCR/";
+    let model_list = find_type_files(model_path, "safetensors")?;
+
+    let device = Device::Cpu;
+    for m in &model_list {
+        let weights = safetensors::load(m, &device)?;
+        for (key, tensor) in weights.iter() {
+            if key.contains(".image_") {
+                println!("=== {} === {:?}", key, tensor.shape());
+            }
+            // println!("=== {} === {:?}", key, tensor.shape());
+        }
+    }
+    println!("model_list: {:?}", model_list);
+    Ok(())
+}

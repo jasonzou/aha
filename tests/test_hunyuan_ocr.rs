@@ -1,92 +1,84 @@
 use std::{pin::pin, time::Instant};
 
-use aha::models::{GenerateModel, qwen3vl::generate::Qwen3VLGenerateModel};
+use aha::models::{GenerateModel, hunyuan_ocr::generate::HunyuanOCRGenerateModel};
 use aha_openai_dive::v1::resources::chat::ChatCompletionParameters;
 use anyhow::Result;
 use rocket::futures::StreamExt;
 
 #[test]
-fn qwen3vl_generate() -> Result<()> {
-    // test with cuda: RUST_BACKTRACE=1 cargo test -F cuda qwen3vl_generate -r -- --nocapture
-
-    let model_path = "/home/jhq/huggingface_model/Qwen/Qwen3-VL-2B-Instruct/";
-
+fn hunyuan_ocr_generate() -> Result<()> {
+    // RUST_BACKTRACE=1 cargo test -F cuda hunyuan_ocr_generate -r -- --nocapture
     let message = r#"
     {
-        "model": "qwen3vl",
+        "model": "hunyuan-ocr",
         "messages": [
             {
                 "role": "user",
-                "content": [
+                "content": [ 
                     {
                         "type": "image",
                         "image_url": 
                         {
                             "url": "file://./assets/img/ocr_test1.png"
                         }
-                    },             
+                    },              
                     {
                         "type": "text", 
-                        "text": "请分析图片并提取所有可见文本内容，按从左到右、从上到下的布局，返回纯文本"
+                        "text": "检测并识别图片中的文字，将文本坐标格式化输出。"
                     }
                 ]
             }
         ]
     }
     "#;
-    // ./assets/video/video_test.mp4
-
+    let model_path = "/home/jhq/huggingface_model/Tencent-Hunyuan/HunyuanOCR/";
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut qwen3vl = Qwen3VLGenerateModel::init(model_path, None, None)?;
+    let mut model = HunyuanOCRGenerateModel::init(model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
-
     let i_start = Instant::now();
-    let res = qwen3vl.generate(mes)?;
+    let res = model.generate(mes)?;
     let i_duration = i_start.elapsed();
-    println!("generate: \n {:?}", res);
     println!("Time elapsed in generate is: {:?}", i_duration);
+    println!("generate: \n {:?}", res);
     Ok(())
 }
 
 #[tokio::test]
-async fn qwen3vl_stream() -> Result<()> {
-    // test with cuda: RUST_BACKTRACE=1 cargo test -F cuda qwen3vl_stream -r -- --nocapture
-
-    let model_path = "/home/jhq/huggingface_model/Qwen/Qwen3-VL-2B-Instruct/";
+async fn hunyuan_ocr_stream() -> Result<()> {
+    // test with cuda: RUST_BACKTRACE=1 cargo test -F cuda hunyuan_ocr_stream -r -- --nocapture
 
     let message = r#"
     {
-        "model": "qwen3vl",
+        "model": "hunyuan-ocr",
         "messages": [
             {
                 "role": "user",
                 "content": [ 
                     {
-                        "type": "video",
-                        "video_url": 
+                        "type": "image",
+                        "image_url": 
                         {
-                            "url": "./assets/video/video_test.mp4"
+                            "url": "file://./assets/img/ocr_test1.png"
                         }
                     },              
                     {
                         "type": "text", 
-                        "text": "视频中发生了什么？"
+                        "text": "检测并识别图片中的文字，将文本坐标格式化输出。"
                     }
                 ]
             }
         ]
     }
     "#;
+    let model_path = "/home/jhq/huggingface_model/Tencent-Hunyuan/HunyuanOCR/";
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut qwen3vl = Qwen3VLGenerateModel::init(model_path, None, None)?;
+    let mut model = HunyuanOCRGenerateModel::init(model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
-
-    let i_start = Instant::now();
-    let mut stream = pin!(qwen3vl.generate_stream(mes)?);
+    let mut stream = pin!(model.generate_stream(mes)?);
     while let Some(item) = stream.next().await {
         println!("generate: \n {:?}", item);
     }

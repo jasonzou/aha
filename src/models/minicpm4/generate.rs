@@ -23,6 +23,7 @@ pub struct MiniCPMGenerateModel<'a> {
     device: Device,
     endoftext_id: u32,
     im_end_id: u32,
+    model_name: String,
 }
 
 impl<'a> MiniCPMGenerateModel<'a> {
@@ -47,6 +48,7 @@ impl<'a> MiniCPMGenerateModel<'a> {
             device: device.clone(),
             endoftext_id,
             im_end_id,
+            model_name: "minicpm4".to_string(),
         })
     }
 }
@@ -78,7 +80,7 @@ impl<'a> GenerateModel for MiniCPMGenerateModel<'a> {
         }
         let res = self.tokenizer.token_decode(generate)?;
         self.minicpm.clear_kv_cache();
-        let response = build_completion_response(res, "minicpm");
+        let response = build_completion_response(res, &self.model_name);
         Ok(response)
     }
     fn generate_stream(
@@ -128,7 +130,7 @@ impl<'a> GenerateModel for MiniCPMGenerateModel<'a> {
                     continue;
                 }
                 error_tokens.clear();
-                let chunk = build_completion_chunk_response(decoded_token, "minicpm", None, None);
+                let chunk = build_completion_chunk_response(decoded_token, &self.model_name, None, None);
                 yield Ok(chunk);
                 if next_token == self.endoftext_id || next_token == self.im_end_id {
                     break;

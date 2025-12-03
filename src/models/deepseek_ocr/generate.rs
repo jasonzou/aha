@@ -29,6 +29,7 @@ pub struct DeepseekOCRGenerateModel {
     eos_token_id: u32,
     device: Device,
     size: Vec<u32>,
+    model_name: String,
 }
 
 impl DeepseekOCRGenerateModel {
@@ -54,6 +55,7 @@ impl DeepseekOCRGenerateModel {
             eos_token_id,
             device: device.clone(),
             size,
+            model_name: "deepseek-ocr".to_string(),
         })
     }
 }
@@ -127,7 +129,7 @@ impl GenerateModel for DeepseekOCRGenerateModel {
         }
         let res = self.tokenizer.token_decode(generate)?;
         self.deepseekocr_model.clear_kv_cache();
-        let response = build_completion_response(res, "deepseek_ocr");
+        let response = build_completion_response(res, &self.model_name);
         Ok(response)
     }
 
@@ -218,7 +220,7 @@ impl GenerateModel for DeepseekOCRGenerateModel {
                     continue;
                 }
                 error_tokens.clear();
-                let chunk = build_completion_chunk_response(decoded_token, "deepseek_ocr", None, None);
+                let chunk = build_completion_chunk_response(decoded_token, &self.model_name, None, None);
                 yield Ok(chunk);
                 if next_token == self.bos_token_id || next_token == self.eos_token_id {
                     break;

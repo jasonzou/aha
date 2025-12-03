@@ -9,6 +9,8 @@ use base64::{Engine, engine::general_purpose};
 use candle_core::{DType, Device, Tensor};
 use image::{DynamicImage, ImageBuffer, ImageReader, Rgb, RgbImage, imageops};
 
+use crate::utils::{ceil_by_factor, floor_by_factor, round_by_factor};
+
 pub fn load_image_from_url(url: &str) -> Result<DynamicImage> {
     tokio::task::block_in_place(|| {
         let response = reqwest::blocking::get(url)
@@ -236,4 +238,40 @@ pub fn img_transform(
         .broadcast_div(&std.to_dtype(DType::F32)?)?
         .to_dtype(dtype)?;
     Ok(img_tensor)
+}
+
+pub fn img_smart_resize(
+    img_h: u32,
+    img_w: u32,
+    factor: u32,
+    min_pixels: u32,
+    max_pixels: u32,
+) -> Result<(u32, u32)> {
+    if std::cmp::max(img_h, img_w) / std::cmp::min(img_h, img_w) > 200 {
+        return Err(anyhow!(format!(
+            "absolute aspect ratio mush be smaller than {}, got {}",
+            200,
+            std::cmp::max(img_h, img_w) / std::cmp::min(img_h, img_w)
+        )));
+    }
+    let image_factor = factor;
+    let mut h_bar = std::cmp::max(image_factor, round_by_factor(img_h, image_factor));
+    let mut w_bar = std::cmp::max(image_factor, round_by_factor(img_w, image_factor));
+
+    if h_bar * w_bar > max_pixels {
+        let beta = ((img_h * img_w) as f32 / max_pixels as f32).sqrt();
+        h_bar = std::cmp::max(
+            image_factor,
+            floor_by_factor(img_h as f32 / beta, image_factor),
+        );
+        w_bar = std::cmp::max(
+            image_factor,
+            floor_by_factor(img_w as f32 / beta, image_factor),
+        );
+    } else if h_bar * w_bar < min_pixels {
+        let beta = (min_pixels as f32 / (img_h * img_w) as f32).sqrt();
+        h_bar = ceil_by_factor(img_h as f32 * beta, image_factor);
+        w_bar = ceil_by_factor(img_w as f32 * beta, image_factor);
+    }
+    Ok((h_bar, w_bar))
 }

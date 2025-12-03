@@ -30,6 +30,7 @@ pub struct Qwen2_5VLGenerateModel<'a> {
     device: Device,
     endoftext_id: u32,
     im_end_id: u32,
+    model_name: String,
 }
 
 impl<'a> Qwen2_5VLGenerateModel<'a> {
@@ -57,6 +58,7 @@ impl<'a> Qwen2_5VLGenerateModel<'a> {
             device: device.clone(),
             endoftext_id,
             im_end_id,
+            model_name: "qwen2.5vl".to_string(),
         })
     }
 }
@@ -119,7 +121,7 @@ impl<'a> GenerateModel for Qwen2_5VLGenerateModel<'a> {
         }
         let res = self.tokenizer.token_decode(generate)?;
         self.qwen2_5_vl.clear_kv_cache();
-        let response = build_completion_response(res, "qwen2.5vl");
+        let response = build_completion_response(res, &self.model_name);
         Ok(response)
     }
 
@@ -202,7 +204,7 @@ impl<'a> GenerateModel for Qwen2_5VLGenerateModel<'a> {
                     continue;
                 }
                 error_tokens.clear();
-                let chunk = build_completion_chunk_response(decoded_token, "qwen2.5vl", None, None);
+                let chunk = build_completion_chunk_response(decoded_token, &self.model_name, None, None);
                 yield Ok(chunk);
                 if next_token == self.endoftext_id || next_token == self.im_end_id {
                     break;

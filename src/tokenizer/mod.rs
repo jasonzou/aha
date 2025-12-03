@@ -3,7 +3,7 @@ use candle_core::{Device, Tensor};
 use tokenizers::Tokenizer;
 
 pub struct TokenizerModel {
-    tokenizer: Tokenizer,
+    pub tokenizer: Tokenizer,
 }
 
 impl TokenizerModel {

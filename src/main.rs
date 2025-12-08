@@ -85,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
         WhichModel::Qwen3vl32B => "Qwen/Qwen3-VL-32B-Instruct",
         WhichModel::DeepSeekOCR => "deepseek-ai/DeepSeek-OCR",
         WhichModel::HunyuanOCR => "Tencent-Hunyuan/HunyuanOCR",
+        WhichModel::PaddleOCRVL => "PaddlePaddle/PaddleOCR-VL",
     };
     let model_path = match args.weight_path {
         Some(path) => path,

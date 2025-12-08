@@ -1018,7 +1018,9 @@ impl DeepseekV2DecoderLayer {
             config.hidden_size,
             config.num_attention_heads,
             config.num_key_value_heads,
+            None,
             false,
+            None,
         )?;
         let mlp = if layer_id >= config.first_k_dense_replace
             && layer_id.is_multiple_of(config.moe_layer_freq)

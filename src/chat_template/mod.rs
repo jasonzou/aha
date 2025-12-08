@@ -51,12 +51,23 @@ pub struct ChatTemplate<'a> {
 
 impl<'a> ChatTemplate<'a> {
     pub fn init(path: &str) -> Result<Self> {
-        let path = path.to_string();
-        assert!(
-            std::path::Path::new(&path).exists(),
-            "model path file not exists"
-        );
-        let template = get_template(path)?;
+        let path: String = path.to_string();
+        if !std::path::Path::new(&path).exists() {
+            return Err(anyhow!("model path not found"));
+        }
+        let template = match get_template(path.clone()) {
+            Ok(template) => template,
+            Err(e) => {
+                let jinja_path = path + "/chat_template.jinja";
+                if !std::path::Path::new(&jinja_path).exists() {
+                    return Err(anyhow!(
+                        "get_template err {e} and chat_template.jinja not found"
+                    ));
+                }
+                std::fs::read_to_string(&jinja_path)
+                    .map_err(|e| anyhow!("Failed to read chat_template.jinja: {}", e))?
+            }
+        };
         let template = string_to_static_str(template);
         // 加载jinjaenv处理chat_template
         let mut env = Environment::new();

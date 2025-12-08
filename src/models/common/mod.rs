@@ -106,7 +106,7 @@ pub struct NaiveAttention {
     num_kv_heads: usize,
     num_kv_groups: usize,
     head_dim: usize,
-    hidden_size: usize,
+    middle_size: usize,
     kv_cache: Option<(Tensor, Tensor)>,
 }
 
@@ -117,23 +117,37 @@ impl NaiveAttention {
         hidden_size: usize,
         num_attention_heads: usize,
         num_key_value_heads: usize,
+        head_dim: Option<usize>,
         bias: bool,
+        o_proj_pp_name: Option<&str>,
     ) -> Result<Self> {
         let num_kv_groups = num_attention_heads / num_key_value_heads;
-        let head_dim = hidden_size / num_attention_heads;
+        let head_dim = match head_dim {
+            None => hidden_size / num_attention_heads,
+            Some(dim) => dim,
+        };
+        let o_proj_pp_name = o_proj_pp_name.unwrap_or("o_proj");
         let (q_proj, k_proj, v_proj, o_proj) = if bias {
             (
                 linear(hidden_size, num_attention_heads * head_dim, vb.pp("q_proj"))?,
                 linear(hidden_size, num_key_value_heads * head_dim, vb.pp("k_proj"))?,
                 linear(hidden_size, num_key_value_heads * head_dim, vb.pp("v_proj"))?,
-                linear(num_attention_heads * head_dim, hidden_size, vb.pp("o_proj"))?,
+                linear(
+                    num_attention_heads * head_dim,
+                    hidden_size,
+                    vb.pp(o_proj_pp_name),
+                )?,
             )
         } else {
             (
                 linear_no_bias(hidden_size, num_attention_heads * head_dim, vb.pp("q_proj"))?,
                 linear_no_bias(hidden_size, num_key_value_heads * head_dim, vb.pp("k_proj"))?,
                 linear_no_bias(hidden_size, num_key_value_heads * head_dim, vb.pp("v_proj"))?,
-                linear_no_bias(num_attention_heads * head_dim, hidden_size, vb.pp("o_proj"))?,
+                linear_no_bias(
+                    num_attention_heads * head_dim,
+                    hidden_size,
+                    vb.pp(o_proj_pp_name),
+                )?,
             )
         };
 
@@ -146,7 +160,7 @@ impl NaiveAttention {
             num_kv_heads: num_key_value_heads,
             num_kv_groups,
             head_dim,
-            hidden_size,
+            middle_size: num_attention_heads * head_dim,
             kv_cache: None,
         })
     }
@@ -189,7 +203,7 @@ impl NaiveAttention {
             attention_mask,
             scale,
         )?;
-        let attn_output = attn_output.reshape((b_sz, q_len, self.hidden_size))?;
+        let attn_output = attn_output.reshape((b_sz, q_len, self.middle_size))?;
         let attn_output = attn_output.apply(&self.o_proj)?;
         Ok(attn_output)
     }
@@ -236,7 +250,7 @@ impl NaiveAttention {
             attention_mask,
             scale,
         )?;
-        let attn_output = attn_output.reshape((b_sz, q_len, self.hidden_size))?;
+        let attn_output = attn_output.reshape((b_sz, q_len, self.middle_size))?;
         let attn_output = attn_output.apply(&self.o_proj)?;
         Ok(attn_output)
     }

@@ -112,7 +112,9 @@ impl HunYuanVisionBlock {
             config.hidden_size,
             config.num_attention_heads,
             config.num_attention_heads,
+            None,
             true,
+            None,
         )?;
         let mlp = TwoLinearMLP::new(
             vb.pp("mlp"),

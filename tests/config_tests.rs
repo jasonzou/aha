@@ -1,7 +1,8 @@
 use aha::models::{
     deepseek_ocr::config::DeepseekOCRConfig, hunyuan_ocr::config::HunYuanVLConfig,
-    minicpm4::config::MiniCPM4Config, qwen2_5vl::config::Qwen2_5VLConfig,
-    qwen3vl::config::Qwen3VLConfig, voxcpm::config::VoxCPMConfig,
+    minicpm4::config::MiniCPM4Config, paddleocr_vl::config::PaddleOCRVLConfig,
+    qwen2_5vl::config::Qwen2_5VLConfig, qwen3vl::config::Qwen3VLConfig,
+    voxcpm::config::VoxCPMConfig,
 };
 use anyhow::Result;
 
@@ -62,6 +63,15 @@ fn hunyuan_ocr_config() -> Result<()> {
     let model_path = "/home/jhq/huggingface_model/Tencent-Hunyuan/HunyuanOCR/";
     let config_path = model_path.to_string() + "/config.json";
     let config: HunYuanVLConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
+    println!("{:?}", config);
+    Ok(())
+}
+#[test]
+fn paddleocr_vl_config() -> Result<()> {
+    // cargo test -F cuda paddleocr_vl_config -r -- --nocapture
+    let model_path = "/home/jhq/huggingface_model/PaddlePaddle/PaddleOCR-VL/";
+    let config_path = model_path.to_string() + "/config.json";
+    let config: PaddleOCRVLConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
     println!("{:?}", config);
     Ok(())
 }

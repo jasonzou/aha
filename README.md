@@ -18,6 +18,7 @@
 * Qwen3VL - 阿里通义千问 3 多模态大语言模型
 * DeepSeek-OCR - 深度求索光学文字识别模型
 * Hunyuan-OCR - 腾讯混元光学文字识别模型
+* PaddleOCR-VL - 百度飞桨光学文字识别模型
 
 ## 计划支持
 我们持续扩展支持的模型列表，欢迎贡献！
@@ -33,7 +34,71 @@ sudo apt-get install -y clang pkg-config ffmpeg libavutil-dev libavcodec-dev lib
 ```
 * windows参考： https://github.com/zmwangx/rust-ffmpeg/wiki/Notes-on-building
 
-## 安装
+## 安装及使用
+
+### 从源码构建部署
+```bash
+git clone https://github.com/jhqxxx/aha.git
+cd aha
+```
+
+#### cargo run 运行参数说明
+##### 基本用法
+```bash
+cargo run -F cuda -- [参数]
+```
+##### 参数详解
+1. 端口设置
+-----
+    -p, --port <PORT>
+* 设置HTTP服务监听的端口号
+* 默认值：10100
+* 示例：--port 8080 或 -p 8080
+
+2. 模型选择（必选）
+-----
+    -m, --model <MODEL>
+* 指定要加载的模型类型
+* 可选值：
+    * minicpm4-0.5b：OpenBMB/MiniCPM4-0.5B 模型
+    * qwen2.5vl-3b：Qwen/Qwen2.5-VL-3B-Instruct 模型
+    * qwen2.5vl-7b：Qwen/Qwen2.5-VL-7B-Instruct 模型
+    * qwen3vl-2b：Qwen/Qwen3-VL-2B-Instruct 模型
+    * qwen3vl-4b：Qwen/Qwen3-VL-4B-Instruct 模型
+    * qwen3vl-8b：Qwen/Qwen3-VL-8B-Instruct 模型
+    * qwen3vl-32b：Qwen/Qwen3-VL-32B-Instruct 模型
+    * deepseek-ocr: deepseek-ai/DeepSeek-OCR 模型
+    * hunyuan-ocr: Tencent-Hunyuan/HunyuanOCR 模型
+    * paddleocr-vl: PaddlePaddle/PaddleOCR-VL 模型
+* 示例：--model deepseek-ocr 或 -m qwen3vl-2b
+
+3. 权重路径
+-----
+    --weight-path <WEIGHT_PATH>
+* 指定本地模型权重文件路径
+* 如果指定此参数，则跳过模型下载步骤
+* 示例：--weight-path /path/to/model/dir
+
+4. 保存路径
+-----
+    --save-dir <SAVE_DIR>
+* 指定模型下载保存的目录
+* 默认保存在用户主目录下的 .aha 文件夹中
+* 示例：--save-dir /custom/model/path
+
+5. 下载重试次数
+----- 
+    --download-retries <DOWNLOAD_RETRIES>
+* 设置模型下载失败时的最大重试次数
+* 默认值：3次
+* 示例：--download-retries 5
+
+##### 注意事项
+* 参数前需要使用双横线 -- 分隔 cargo 命令和应用程序参数
+* 模型参数 (--model 或 -m) 是必需的
+* 如果未指定 --weight-path，程序会自动下载指定模型
+* 下载的模型默认保存在 ~/.aha/ 目录下（除非指定了 --save-dir）
+
 ### 作为库使用
 * cargo add aha
 * 或者在Cargo.toml中添加
@@ -80,6 +145,8 @@ fn main() -> Result<()> {
 git clone https://github.com/jhqxxx/aha.git
 cd aha
 # 修改测试用例中模型路径
+# 运行 PaddleOCR-Vl 示例
+cargo test -F cuda paddleocr_vl_generate -r -- --nocapture
 
 # 运行 Hunyuan-OCR 示例
 cargo test -F cuda hunyuan_ocr_generate -r -- --nocapture
@@ -97,68 +164,6 @@ cargo test -F cuda minicpm_generate -r -- --nocapture
 cargo test -F cuda voxcpm_generate -r -- --nocapture
 ```
 
-### 从源码构建部署
-```bash
-git clone https://github.com/jhqxxx/aha.git
-cd aha
-```
-
-#### cargo run 运行参数说明
-##### 基本用法
-```bash
-cargo run -F cuda -- [参数]
-```
-##### 参数详解
-1. 端口设置
------
-    -p, --port <PORT>
-* 设置HTTP服务监听的端口号
-* 默认值：10100
-* 示例：--port 8080 或 -p 8080
-
-2. 模型选择（必选）
------
-    -m, --model <MODEL>
-* 指定要加载的模型类型
-* 可选值：
-    * minicpm4-0.5b：OpenBMB/MiniCPM4-0.5B 模型
-    * qwen2.5vl-3b：Qwen/Qwen2.5-VL-3B-Instruct 模型
-    * qwen2.5vl-7b：Qwen/Qwen2.5-VL-7B-Instruct 模型
-    * qwen3vl-2b：Qwen/Qwen3-VL-2B-Instruct 模型
-    * qwen3vl-4b：Qwen/Qwen3-VL-4B-Instruct 模型
-    * qwen3vl-8b：Qwen/Qwen3-VL-8B-Instruct 模型
-    * qwen3vl-32b：Qwen/Qwen3-VL-32B-Instruct 模型
-    * deepseek-ocr: deepseek-ai/DeepSeek-OCR 模型
-    * hunyuan-ocr: Tencent-Hunyuan/HunyuanOCR 模型
-* 示例：--model deepseek-ocr 或 -m qwen3vl-2b
-
-3. 权重路径
------
-    --weight-path <WEIGHT_PATH>
-* 指定本地模型权重文件路径
-* 如果指定此参数，则跳过模型下载步骤
-* 示例：--weight-path /path/to/model/dir
-
-4. 保存路径
------
-    --save-dir <SAVE_DIR>
-* 指定模型下载保存的目录
-* 默认保存在用户主目录下的 .aha 文件夹中
-* 示例：--save-dir /custom/model/path
-
-5. 下载重试次数
------ 
-    --download-retries <DOWNLOAD_RETRIES>
-* 设置模型下载失败时的最大重试次数
-* 默认值：3次
-* 示例：--download-retries 5
-
-##### 注意事项
-* 参数前需要使用双横线 -- 分隔 cargo 命令和应用程序参数
-* 模型参数 (--model 或 -m) 是必需的
-* 如果未指定 --weight-path，程序会自动下载指定模型
-* 下载的模型默认保存在 ~/.aha/ 目录下（除非指定了 --save-dir）
-
 ## 开发
 ### 项目结构
 ```text
@@ -172,6 +177,7 @@ cargo run -F cuda -- [参数]
 │   │   ├── deepseek_ocr
 │   │   ├── hunyuan_ocr
 │   │   ├── minicpm4
+│   │   ├── paddleocr_vl
 │   │   ├── qwen2_5vl
 │   │   ├── qwen3vl
 │   │   ├── voxcpm
@@ -185,6 +191,7 @@ cargo run -F cuda -- [参数]
     ├── test_hunyuan_ocr.rs
     ├── test_deepseek_ocr.rs
     ├── test_minicpm4.rs
+    ├── test_paddleocr_vl.rs
     ├── test_qwen2_5vl.rs
     └── test_voxcpm.rs
 ```
@@ -207,6 +214,8 @@ cargo run -F cuda -- [参数]
 2. 提交新的 Issue，包含详细描述和复现步骤
 
 ## 更新日志
+### v0.1.4
+* 添加PaddleOCR-VL 模型
 
 ### v0.1.3
 * 添加 Hunyuan-OCR 模型

@@ -108,7 +108,9 @@ impl MiniCPMDecoderLayer {
             cfg.hidden_size,
             cfg.num_attention_heads,
             cfg.num_key_value_heads,
+            None,
             false,
+            None,
         )?;
         let mlp = GateUpDownMLP::new(
             vb.pp("mlp"),

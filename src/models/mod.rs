@@ -2,6 +2,7 @@ pub mod common;
 pub mod deepseek_ocr;
 pub mod hunyuan_ocr;
 pub mod minicpm4;
+pub mod paddleocr_vl;
 pub mod qwen2_5vl;
 pub mod qwen3vl;
 pub mod voxcpm;
@@ -15,7 +16,8 @@ use rocket::futures::Stream;
 use crate::models::{
     deepseek_ocr::generate::DeepseekOCRGenerateModel,
     hunyuan_ocr::generate::HunyuanOCRGenerateModel, minicpm4::generate::MiniCPMGenerateModel,
-    qwen2_5vl::generate::Qwen2_5VLGenerateModel, qwen3vl::generate::Qwen3VLGenerateModel,
+    paddleocr_vl::generate::PaddleOCRVLGenerateModel, qwen2_5vl::generate::Qwen2_5VLGenerateModel,
+    qwen3vl::generate::Qwen3VLGenerateModel,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -38,6 +40,8 @@ pub enum WhichModel {
     DeepSeekOCR,
     #[value(name = "hunyuan-ocr")]
     HunyuanOCR,
+    #[value(name = "paddleocr-vl")]
+    PaddleOCRVL,
 }
 
 pub trait GenerateModel {
@@ -61,6 +65,7 @@ pub enum ModelInstance<'a> {
     Qwen3VL(Qwen3VLGenerateModel<'a>),
     DeepSeekOCR(DeepseekOCRGenerateModel),
     HunyuanOCR(HunyuanOCRGenerateModel<'a>),
+    PaddleOCRVL(Box<PaddleOCRVLGenerateModel<'a>>),
 }
 
 impl<'a> GenerateModel for ModelInstance<'a> {
@@ -71,6 +76,7 @@ impl<'a> GenerateModel for ModelInstance<'a> {
             ModelInstance::Qwen3VL(model) => model.generate(mes),
             ModelInstance::DeepSeekOCR(model) => model.generate(mes),
             ModelInstance::HunyuanOCR(model) => model.generate(mes),
+            ModelInstance::PaddleOCRVL(model) => model.generate(mes),
         }
     }
 
@@ -91,6 +97,7 @@ impl<'a> GenerateModel for ModelInstance<'a> {
             ModelInstance::Qwen3VL(model) => model.generate_stream(mes),
             ModelInstance::DeepSeekOCR(model) => model.generate_stream(mes),
             ModelInstance::HunyuanOCR(model) => model.generate_stream(mes),
+            ModelInstance::PaddleOCRVL(model) => model.generate_stream(mes),
         }
     }
 }
@@ -132,6 +139,10 @@ pub fn load_model(model_type: WhichModel, path: &str) -> Result<ModelInstance<'_
         WhichModel::HunyuanOCR => {
             let model = HunyuanOCRGenerateModel::init(path, None, None)?;
             ModelInstance::HunyuanOCR(model)
+        }
+        WhichModel::PaddleOCRVL => {
+            let model = PaddleOCRVLGenerateModel::init(path, None, None)?;
+            ModelInstance::PaddleOCRVL(Box::new(model))
         }
     };
     Ok(model)

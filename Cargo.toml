@@ -36,6 +36,7 @@ rayon = "1.10"
 [features]
 flash-attn=["candle-flash-attn"]
 cuda=["candle-nn/cuda", "candle-core/cuda", "candle-transformers/cuda"]
+metal=["candle-nn/metal", "candle-core/metal", "candle-transformers/metal"]
 ffmpeg=["ffmpeg-next"]
 
 [lints.clippy]

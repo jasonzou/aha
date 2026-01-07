@@ -205,6 +205,7 @@ impl Qwen3VLVisionBlock {
             vb.pp("mlp"),
             config.hidden_size,
             config.intermediate_size,
+            config.hidden_size,
             config.hidden_act,
             true,
             "linear_fc1",

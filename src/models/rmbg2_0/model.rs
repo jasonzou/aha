@@ -255,7 +255,7 @@ impl SwinTransformerBlock {
         )?;
         let norm2 = get_layer_norm(vb.pp("norm2"), 1e-5, dim)?;
         let mlp_dim = (dim as f32 * mlp_ratio) as usize;
-        let mlp = TwoLinearMLP::new(vb.pp("mlp"), dim, mlp_dim, act, true, "fc1", "fc2")?;
+        let mlp = TwoLinearMLP::new(vb.pp("mlp"), dim, mlp_dim, dim, act, true, "fc1", "fc2")?;
         Ok(Self {
             norm1,
             attn,

@@ -1,5 +1,6 @@
 pub mod common;
 pub mod deepseek_ocr;
+pub mod glm_asr_nano;
 pub mod hunyuan_ocr;
 pub mod minicpm4;
 pub mod paddleocr_vl;
@@ -7,7 +8,6 @@ pub mod qwen2_5vl;
 pub mod qwen3vl;
 pub mod rmbg2_0;
 pub mod voxcpm;
-pub mod glm_asr_nano;
 
 use aha_openai_dive::v1::resources::chat::{
     ChatCompletionChunkResponse, ChatCompletionParameters, ChatCompletionResponse,
@@ -17,6 +17,7 @@ use rocket::futures::Stream;
 
 use crate::models::{
     deepseek_ocr::generate::DeepseekOCRGenerateModel,
+    glm_asr_nano::generate::GlmAsrNanoGenerateModel,
     hunyuan_ocr::generate::HunyuanOCRGenerateModel, minicpm4::generate::MiniCPMGenerateModel,
     paddleocr_vl::generate::PaddleOCRVLGenerateModel, qwen2_5vl::generate::Qwen2_5VLGenerateModel,
     qwen3vl::generate::Qwen3VLGenerateModel, rmbg2_0::generate::RMBG2_0Model,
@@ -51,6 +52,8 @@ pub enum WhichModel {
     VoxCPM,
     #[value(name = "voxcpm1.5")]
     VoxCPM1_5,
+    #[value(name = "glm-asr-nano-2512")]
+    GlmASRNano2512,
 }
 
 pub trait GenerateModel {
@@ -77,6 +80,7 @@ pub enum ModelInstance<'a> {
     PaddleOCRVL(Box<PaddleOCRVLGenerateModel<'a>>),
     RMBG2_0(Box<RMBG2_0Model>),
     VoxCPM(Box<VoxCPMGenerate>),
+    GlmASRNano(GlmAsrNanoGenerateModel<'a>),
 }
 
 impl<'a> GenerateModel for ModelInstance<'a> {
@@ -90,6 +94,7 @@ impl<'a> GenerateModel for ModelInstance<'a> {
             ModelInstance::PaddleOCRVL(model) => model.generate(mes),
             ModelInstance::RMBG2_0(model) => model.generate(mes),
             ModelInstance::VoxCPM(model) => model.generate(mes),
+            ModelInstance::GlmASRNano(model) => model.generate(mes),
         }
     }
 
@@ -113,6 +118,7 @@ impl<'a> GenerateModel for ModelInstance<'a> {
             ModelInstance::PaddleOCRVL(model) => model.generate_stream(mes),
             ModelInstance::RMBG2_0(model) => model.generate_stream(mes),
             ModelInstance::VoxCPM(model) => model.generate_stream(mes),
+            ModelInstance::GlmASRNano(model) => model.generate_stream(mes),
         }
     }
 }
@@ -170,6 +176,10 @@ pub fn load_model(model_type: WhichModel, path: &str) -> Result<ModelInstance<'_
         WhichModel::VoxCPM1_5 => {
             let model = VoxCPMGenerate::init(path, None, None)?;
             ModelInstance::VoxCPM(Box::new(model))
+        }
+        WhichModel::GlmASRNano2512 => {
+            let model = GlmAsrNanoGenerateModel::init(path, None, None)?;
+            ModelInstance::GlmASRNano(model)
         }
     };
     Ok(model)

@@ -1,13 +1,31 @@
+use aha::utils::audio_utils::create_hann_window;
 use anyhow::Result;
-use candle_core::Tensor;
+use candle_core::DType;
 
 #[test]
 fn messy_test() -> Result<()> {
-    // RUST_BACKTRACE=1 cargo test -F cuda messy_test -r -- --nocapture
+    // RUST_BACKTRACE=1 cargo test -F cuda,ffmpeg messy_test -r -- --nocapture
     let device = &candle_core::Device::Cpu;
-    // let path = get_default_save_dir();
-    let x = Tensor::arange(0.0, 9.0, device)?;
-    println!("x: {}", x);
+    let window = create_hann_window(400, DType::F32, device)?;
+    println!("window: {}", window);
+    // let audio_path = "file:///home/jhq/Videos/voice_01.wav";
+    // let audio_path = "/home/jhq/Videos/zh.mp3";
+    // let audio_path = "/home/jhq/Videos/zh.mp3";
+    // // let audio_tensor = load_and_resample_audio_rubato(audio_path, 16000, device)?;
+    // // let audio_tensor = load_audio_with_resample(audio_path, device, Some(16000))?;
+    // // println!("audio_tensor: {}", audio_tensor);
+    // #[cfg(feature = "ffmpeg")]
+    // {
+    //     use aha::utils::audio_utils::load_and_resample_audio_ffmpeg;
+
+    //     let audio_tensor = load_and_resample_audio_ffmpeg(audio_path, Some(16000), device)?;
+    //     println!("audio_tensor: {}", audio_tensor);
+    // }
+
+    // // let path = get_default_save_dir();
+    // // let x = Tensor::new(array, device)
+    // let x = Tensor::arange(0.0, 9.0, device)?;
+    // println!("x: {}", x);
     // let x = x
     //     .unsqueeze(0)?
     //     .unsqueeze(0)?

@@ -34,6 +34,8 @@
     - 模型：[VoxCPM1.5](https://huggingface.co/openbmb/VoxCPM1.5) 开源协议：[Apache license 2.0](https://huggingface.co/datasets/choosealicense/licenses/blob/main/markdown/apache-2.0.md)
 * [RMBG2.0](https://huggingface.co/collections/briaai/rmbg) - RMBGv2.0由BRIA AI开发，供非商业用途使用。
     - 模型：[RMBG2.0](https://huggingface.co/briaai/RMBG-2.0) 开源协议：[Attribution-NonCommercial 4.0 International](https://creativecommons.org/licenses/by-nc/4.0/deed.en)
+* GLM-ASR-Nano-2512 - 智谱AI语音识别模型
+    - 模型：[GLM-ASR-Nano-2512](https://huggingface.co/zai-org/GLM-ASR-Nano-2512) 开源协议：[MIT](https://huggingface.co/datasets/choosealicense/licenses/blob/main/markdown/mit.md)
 
 ## 计划支持
 我们持续扩展支持的模型列表，欢迎贡献！
@@ -114,6 +116,7 @@ cargo run -F cuda -r -- [参数]
     * RMBG2.0: AI-ModelScope/RMBG-2.0 模型
     * voxcpm: OpenBMB/VoxCPM-0.5B 模型
     * voxcpm1.5: OpenBMB/VoxCPM1.5 模型
+    * glm-asr-nano-2512: ZhipuAI/GLM-ASR-Nano-2512 模型
 * 示例：--model deepseek-ocr 或 -m qwen3vl-2b
 
 3. 权重路径
@@ -150,7 +153,7 @@ cargo run -F cuda -r -- [参数]
 1. 对话接口
 - **端点**: `POST /chat/completions`
 - **功能**: 多模态对话和文本生成
-- **支持模型**: Qwen2.5VL,Qwen3VL,DeepSeekOCR 等
+- **支持模型**: Qwen2.5VL,Qwen3VL,DeepSeekOCR, GLM-ASR-Nano-2512 等
 - **请求格式**: OpenAI Chat Completion 格式
 - **响应格式**: OpenAI Chat Completion 格式
 - **流式支持**: 支持
@@ -286,6 +289,9 @@ cargo test -F cuda voxcpm_generate -r -- --nocapture
 2. 提交新的 Issue，包含详细描述和复现步骤
 
 ## 更新日志
+### v0.1.7
+* 支持GLM-ASR-Nano-2512 模型
+
 ### v0.1.6
 * 支持RMGB2.0 模型
 

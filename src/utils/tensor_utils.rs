@@ -844,3 +844,29 @@ pub fn nonzero(input: &Tensor) -> Result<(Vec<u32>, Vec<u32>)> {
     }
     Ok((topk_ids, token_ids_all))
 }
+
+pub fn pad_reflect_last_dim(t: &Tensor, pad: (usize, usize)) -> Result<Tensor> {
+    let (pad_l, pad_r) = pad;
+    let last_dim = t.dim(D::Minus1)?;
+    if pad_l >= last_dim || pad_r >= last_dim {
+        return Err(anyhow!(format!(
+            "input pad_l {}, pad_r {} must less than t last_dim: {}",
+            pad_l, pad_r, last_dim
+        )));
+    }
+    let mut pad_tensor = t.clone();
+    if pad_l > 0 {
+        let left = pad_tensor.narrow(D::Minus1, 1, pad_l)?.contiguous()?;
+        let last_dim_id = left.rank() - 1;
+        let left_flip = left.flip(&[last_dim_id])?;
+        pad_tensor = Tensor::cat(&[&left_flip, &pad_tensor], D::Minus1)?;
+    }
+    if pad_r > 0 {
+        let start_i = last_dim - pad_r;
+        let right = pad_tensor.narrow(D::Minus1, start_i, pad_r)?.contiguous()?;
+        let last_dim_id = right.rank() - 1;
+        let right_flip = right.flip(&[last_dim_id])?;
+        pad_tensor = Tensor::cat(&[&pad_tensor, &right_flip], D::Minus1)?;
+    }
+    Ok(pad_tensor)
+}

@@ -271,7 +271,7 @@ impl Block {
         )?;
         let norm2 = get_layer_norm(vb.pp("norm2"), eps, dim)?;
         let mlp_dim = (dim as f32 * mlp_ratio) as usize;
-        let mlp = TwoLinearMLP::new(vb.pp("mlp"), dim, mlp_dim, act, true, "lin1", "lin2")?;
+        let mlp = TwoLinearMLP::new(vb.pp("mlp"), dim, mlp_dim, dim, act, true, "lin1", "lin2")?;
         Ok(Self {
             norm1,
             attn,

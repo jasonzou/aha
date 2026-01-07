@@ -84,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
         WhichModel::RMBG2_0 => "AI-ModelScope/RMBG-2.0",
         WhichModel::VoxCPM => "OpenBMB/VoxCPM-0.5B",
         WhichModel::VoxCPM1_5 => "OpenBMB/VoxCPM1.5",
+        WhichModel::GlmASRNano2512 => "ZhipuAI/GLM-ASR-Nano-2512",
     };
     let model_path = match &args.weight_path {
         Some(path) => path.clone(),

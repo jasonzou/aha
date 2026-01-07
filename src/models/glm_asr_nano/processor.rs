@@ -1,30 +1,30 @@
+use std::f32;
+
 use aha_openai_dive::v1::resources::chat::ChatCompletionParameters;
 use anyhow::Result;
-use candle_core::{DType, Device, IndexOp, Tensor};
+use candle_core::{D, DType, Device, IndexOp, Tensor};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use crate::{
     models::glm_asr_nano::config::GlmAsrNanoProcessorConfig,
-    tokenizer::TokenizerModel,
-    utils::{audio_utils::extract_audios, extract_user_text},
+    utils::{
+        audio_utils::{create_hann_window, extract_audios, mel_filter_bank, stft_audio},
+        tensor_utils::{pad_reflect_last_dim, split_tensor},
+    },
 };
-
-pub struct WhisperFeatureExtractor {
-    feature_size: usize,
-    sampling_rate: usize,
-    padding_value: f32,
-    hop_length: usize,
-    chunk_length: usize,
-    n_fft: usize,
-    dither: f32,
-}
 
 pub struct GlmAsrNanoProcessor {
     sampling_rate: usize,
     chunk_length: usize,
+    n_samples: usize,
+    n_fft: usize,
+    window: Tensor,
+    mel_filters: Tensor,
+    hop_length: usize,
     audio_token: String,
-    audio_token_id: u32,
+    // audio_token_id: u32,
     max_audio_len: usize,
-    default_transcription_prompt: String,
+    // default_transcription_prompt: String,
     device: Device,
 }
 
@@ -43,52 +43,193 @@ impl GlmAsrNanoProcessor {
         let processor_cfg: GlmAsrNanoProcessorConfig =
             serde_json::from_slice(&std::fs::read(processor_config_path)?)?;
         let audio_token = processor_cfg.audio_token.clone();
-        let audio_token_id = 59260u32;
+        // let audio_token_id = 59260u32;
         let max_audio_len = processor_cfg.max_audio_len;
-        let default_transcription_prompt = processor_cfg.default_transcription_prompt.clone();
+        // let default_transcription_prompt = processor_cfg.default_transcription_prompt.clone();
         let sampling_rate = processor_cfg.feature_extractor.sampling_rate;
         let chunk_length = processor_cfg.feature_extractor.chunk_length;
+        let n_samples = processor_cfg.feature_extractor.n_samples;
+        let n_fft = processor_cfg.feature_extractor.n_fft;
+        let hop_length = processor_cfg.feature_extractor.hop_length;
+        let window = create_hann_window(n_fft, dtype, device)?;
+        let window = window.unsqueeze(0)?.unsqueeze(0)?;
+        let mel_filters = mel_filter_bank(
+            1 + n_fft / 2,
+            processor_cfg.feature_extractor.feature_size,
+            0.0,
+            8000.0,
+            sampling_rate as f32,
+            Some("slaney"),
+            crate::utils::audio_utils::MelScale::Slaney,
+            false,
+            device,
+        )?
+        .t()?;
         Ok(Self {
             sampling_rate,
             chunk_length,
+            n_samples,
+            n_fft,
+            window,
+            mel_filters,
+            hop_length,
             audio_token,
-            audio_token_id,
+            // audio_token_id,
             max_audio_len,
-            default_transcription_prompt,
+            // default_transcription_prompt,
             device: device.clone(),
         })
     }
 
-    // pub fn process_audio(&self, audios: Vec<Tensor>) -> Result<Tensor> {
-    //     let window_size = self.sampling_rate * self.chunk_length;
-    //     let max_windows = self.max_audio_len / self.chunk_length;
-    //     let mut per_sample_windows = vec![];
-    //     let mut flat_chunks = vec![];
-    //     for audio_el in audios {
-    //         let n_samples = audio_el.dim(0)?;
-    //         let n_win = ((n_samples + window_size - 1) / window_size).max(1);
-    //         let n_win = if n_win > max_windows {
-    //             max_windows
-    //         } else {
-    //             n_win
-    //         };
-    //         per_sample_windows.push(n_win);
-    //         let time_cap = (n_win * window_size).min(n_samples);
-    //         for i in 0..n_win {
-    //             let start = i * window_size;
-    //             let end = ((i + 1) * window_size).min(time_cap);
-    //             flat_chunks.push(audio_el.i(start..end)?);
-    //         }
-    //     }
-    // }
+    /// 提取音频帧
+    pub fn extract_frames(&self, waveform: &Tensor, n_frames: usize) -> Result<Tensor> {
+        let mut frames = Vec::with_capacity(n_frames);
+
+        for i in 0..n_frames {
+            let start = i * self.hop_length;
+            let frame = waveform.narrow(D::Minus1, start, self.n_fft)?;
+            frames.push(frame);
+        }
+
+        let result = Tensor::cat(&frames, D::Minus1)?;
+        let bs = result.dim(0)?;
+        let reshaped = result.reshape((bs, n_frames, self.n_fft))?;
+        Ok(reshaped)
+    }
+
+    pub fn extract_fbank_features(&self, waveform: &Tensor) -> Result<Tensor> {
+        let pad = self.n_fft / 2;
+        let waveform = pad_reflect_last_dim(waveform, (pad, pad))?;
+        let (batch_size, samples) = waveform.dims2()?;
+
+        // 计算输出维度
+        let n_frames = (samples - self.n_fft) / self.hop_length + 1;
+        // (bs, n_frames, n_fft)
+        let frames = self.extract_frames(&waveform, n_frames)?;
+        // 应用汉明窗口
+        let result = frames.broadcast_mul(&self.window)?;
+        // 傅立叶变换
+        let mut wave_fft = vec![];
+        for bs in 0..batch_size {
+            let wave_i = result.i(bs)?;
+            let wave_i_vec = wave_i.to_vec2::<f32>()?;
+            let wave_i_fft_vec: Result<Vec<Vec<f32>>> = wave_i_vec
+                .par_iter()
+                .map(|frame_wave| stft_audio(self.n_fft, frame_wave))
+                .collect();
+            let wave_i_fft_vec = wave_i_fft_vec?;
+
+            let wave_i_fft = Tensor::new(wave_i_fft_vec, &self.device)?.unsqueeze(0)?;
+            wave_fft.push(wave_i_fft);
+        }
+        let magnitudes = Tensor::cat(&wave_fft, 0)?.transpose(D::Minus1, D::Minus2)?;
+        let magnitudes = magnitudes.narrow(D::Minus1, 0, n_frames - 1)?;
+        let mel_spec = self.mel_filters.broadcast_matmul(&magnitudes)?;
+        let mel_spec = mel_spec.clamp(1e-10f32, f32::INFINITY)?;
+        let ln_spec = mel_spec.log()?;
+        let log10_spec = ln_spec.broadcast_div(&Tensor::new(f32::ln(10.0), mel_spec.device())?)?;
+        let max_val = log10_spec.max_all()?.affine(1.0, -8.0)?;
+        let log10_spec = log10_spec.broadcast_maximum(&max_val)?;
+        let log_spec = log10_spec.affine(1.0, 4.0)?.affine(1.0 / 4.0, 0.0)?;
+        Ok(log_spec)
+    }
+
+    pub fn feature_extractor(&self, raw_speech: Vec<Tensor>) -> Result<(Tensor, Tensor)> {
+        let mut pad_audio = vec![];
+        let mut input_features_mask = vec![];
+        for audio in raw_speech {
+            let audio_len = audio.dim(0)?;
+            let pad_num = self.n_samples - audio_len;
+
+            let audio_pad = audio.pad_with_zeros(0, 0, pad_num)?;
+            // (n_samples) -> (1, n_samples)
+            let audio_pad = audio_pad.unsqueeze(0)?;
+            pad_audio.push(audio_pad);
+            let mut mask = vec![1u32; audio_len];
+            mask.extend_from_slice(&vec![0u32; pad_num]);
+            input_features_mask.push(mask);
+        }
+        let input_features = Tensor::cat(&pad_audio, 0)?;
+        let input_features_mask = Tensor::new(input_features_mask, input_features.device())?;
+        let input_features = self.extract_fbank_features(&input_features)?;
+        let (_, audio_len) = input_features_mask.dims2()?;
+        let mask_idx: Vec<u32> = (0..audio_len)
+            .step_by(self.hop_length)
+            .map(|i| i as u32)
+            .collect();
+        let mask_idx = Tensor::new(mask_idx, &self.device)?;
+        let input_features_mask = input_features_mask.index_select(&mask_idx, D::Minus1)?;
+        Ok((input_features, input_features_mask))
+    }
+
+    pub fn process_audio(&self, audios: Vec<Tensor>) -> Result<(Tensor, Tensor, Vec<usize>)> {
+        let window_size = self.sampling_rate * self.chunk_length;
+        let max_windows = self.max_audio_len / self.chunk_length;
+        let mut per_sample_windows = vec![];
+        let mut flat_chunks = vec![];
+        for audio_el in audios {
+            let audio_el = if audio_el.rank() == 2 {
+                audio_el.squeeze(0)?
+            } else {
+                audio_el
+            };
+            let n_samples = audio_el.dim(0)?;
+            let n_win = ((n_samples + window_size - 1) / window_size).max(1);
+            let n_win = if n_win > max_windows {
+                max_windows
+            } else {
+                n_win
+            };
+            per_sample_windows.push(n_win);
+            let time_cap = (n_win * window_size).min(n_samples);
+            for i in 0..n_win {
+                let start = i * window_size;
+                let end = ((i + 1) * window_size).min(time_cap);
+                flat_chunks.push(audio_el.i(start..end)?);
+            }
+        }
+        let (input_features, input_features_mask) = self.feature_extractor(flat_chunks)?;
+        Ok((input_features, input_features_mask, per_sample_windows))
+    }
+
+    pub fn get_audio_token_length(&self, audio_lens: Vec<u32>) -> Result<Vec<u32>> {
+        let merge_factor = 4;
+        let audio_lens = audio_lens
+            .iter()
+            .map(|i| (i + 2 - 3) + 1) // (pad=1, ks=3, stride=1)
+            .collect::<Vec<u32>>()
+            .iter()
+            .map(|i| (i + 2 - 3) / 2 + 1) // (pad=1, ks=3, stride=2)
+            .collect::<Vec<u32>>();
+        let num_tokens = audio_lens
+            .iter()
+            .map(|i| (i - merge_factor) / merge_factor + 1)
+            .collect::<Vec<u32>>();
+        Ok(num_tokens)
+    }
 
     pub fn process_info(
         &self,
-        mes: &ChatCompletionParameters
-    ) -> Result<Tensor> {
+        mes: &ChatCompletionParameters,
+        render_text: &str,
+    ) -> Result<(Tensor, Vec<u32>, String)> {
         let audio_tensors = extract_audios(mes, &self.device, Some(self.sampling_rate))?;
-        println!("audio: {}", audio_tensors[0]);
-        // let audio = self.process_audio(audio_tensors)?;
-        Ok(audio_tensors[0].clone())
+        let (input_features, input_features_mask, per_sample_windows) =
+            self.process_audio(audio_tensors)?;
+        let audio_lengths = input_features_mask.sum(D::Minus1)?;
+        let audio_vec = split_tensor(&audio_lengths, &per_sample_windows, 0)?;
+        let audio_vec: Vec<u32> = audio_vec
+            .iter()
+            .map(|t| t.sum_all().unwrap().to_scalar::<u32>().unwrap())
+            .collect();
+
+        let audio_token_lengths = self.get_audio_token_length(audio_vec)?;
+        let mut text = render_text.to_string();
+        for audio_len in audio_token_lengths.clone() {
+            let replace = "<|placeholder|>".repeat(audio_len as usize);
+            text = text.replacen(&self.audio_token, &replace, 1);
+        }
+        text = text.replace("<|placeholder|>", &self.audio_token);
+        Ok((input_features, audio_token_lengths, text))
     }
 }

@@ -11,7 +11,9 @@ fn minicpm_generate() -> Result<()> {
     // test with cuda: RUST_BACKTRACE=1 cargo test -F cuda minicpm_generate -r -- --nocapture
     // test with cuda+flash-attn: RUST_BACKTRACE=1 cargo test -F cuda,flash-attn minicpm_generate -r -- --nocapture
 
-    let model_path = "/home/jhq/huggingface_model/OpenBMB/MiniCPM4-0.5B/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/OpenBMB/MiniCPM4-0.5B/", save_dir);
     let message = r#"
     {
         "temperature": 0.3,
@@ -27,7 +29,7 @@ fn minicpm_generate() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut model = MiniCPMGenerateModel::init(model_path, None, None)?;
+    let mut model = MiniCPMGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
 
@@ -50,7 +52,9 @@ fn minicpm_generate() -> Result<()> {
 async fn minicpm_stream() -> Result<()> {
     // test with cuda+flash-attn: RUST_BACKTRACE=1 cargo test -F cuda,flash-attn minicpm_stream -r -- --nocapture
 
-    let model_path = "/home/jhq/huggingface_model/OpenBMB/MiniCPM4-0.5B/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/OpenBMB/MiniCPM4-0.5B/", save_dir);
 
     let message = r#"
     {
@@ -65,7 +69,7 @@ async fn minicpm_stream() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut model = MiniCPMGenerateModel::init(model_path, None, None)?;
+    let mut model = MiniCPMGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
 

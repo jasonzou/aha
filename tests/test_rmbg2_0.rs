@@ -8,7 +8,9 @@ use anyhow::Result;
 fn rmbg2_0_generate() -> Result<()> {
     // test with cuda: RUST_BACKTRACE=1 cargo test -F cuda rmbg2_0_generate -r -- --nocapture
 
-    let model_path = "/home/jhq/huggingface_model/AI-ModelScope/RMBG-2.0/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/AI-ModelScope/RMBG-2.0/", save_dir);
 
     let message = r#"
     {
@@ -31,7 +33,7 @@ fn rmbg2_0_generate() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let model = RMBG2_0Model::init(model_path, None, None)?;
+    let model = RMBG2_0Model::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
 

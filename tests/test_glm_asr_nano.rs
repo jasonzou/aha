@@ -8,7 +8,9 @@ use rocket::futures::StreamExt;
 #[test]
 fn glm_asr_nano_generate() -> Result<()> {
     // RUST_BACKTRACE=1 cargo test -F cuda glm_asr_nano_generate -r -- --nocapture
-    let model_path = "/home/jhq/huggingface_model/ZhipuAI/GLM-ASR-Nano-2512/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/ZhipuAI/GLM-ASR-Nano-2512/", save_dir);
     let message = r#"
     {
         "model": "glm-asr-nano",
@@ -34,7 +36,7 @@ fn glm_asr_nano_generate() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut glm_asr_model = GlmAsrNanoGenerateModel::init(model_path, None, None)?;
+    let mut glm_asr_model = GlmAsrNanoGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
     let i_start = Instant::now();
@@ -54,7 +56,9 @@ fn glm_asr_nano_generate() -> Result<()> {
 #[tokio::test]
 async fn glm_asr_nano_stream() -> Result<()> {
     // RUST_BACKTRACE=1 cargo test -F cuda glm_asr_nano_stream -r -- --nocapture
-    let model_path = "/home/jhq/huggingface_model/ZhipuAI/GLM-ASR-Nano-2512/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/ZhipuAI/GLM-ASR-Nano-2512/", save_dir);
     let message = r#"
     {
         "model": "glm-asr-nano",
@@ -80,7 +84,7 @@ async fn glm_asr_nano_stream() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut glm_asr_model = GlmAsrNanoGenerateModel::init(model_path, None, None)?;
+    let mut glm_asr_model = GlmAsrNanoGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
     let i_start = Instant::now();

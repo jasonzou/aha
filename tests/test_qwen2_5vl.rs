@@ -13,7 +13,9 @@ fn qwen2_5vl_generate() -> Result<()> {
     // let device = Device::cuda_if_available(0)?;
     // let dtype = DType::BF16;
 
-    let model_path = "/home/jhq/huggingface_model/Qwen/Qwen2.5-VL-3B-Instruct/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/Qwen/Qwen2.5-VL-3B-Instruct/", save_dir);
 
     let message = r#"
     {
@@ -40,7 +42,7 @@ fn qwen2_5vl_generate() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut model = Qwen2_5VLGenerateModel::init(model_path, None, None)?;
+    let mut model = Qwen2_5VLGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
 
@@ -65,7 +67,9 @@ async fn qwen2_5vl_stream() -> Result<()> {
     // let device = Device::cuda_if_available(0)?;
     // let dtype = DType::BF16;
 
-    let model_path = "/home/jhq/huggingface_model/Qwen/Qwen2.5-VL-3B-Instruct/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/Qwen/Qwen2.5-VL-3B-Instruct/", save_dir);
 
     let message = r#"
     {
@@ -92,7 +96,7 @@ async fn qwen2_5vl_stream() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut model = Qwen2_5VLGenerateModel::init(model_path, None, None)?;
+    let mut model = Qwen2_5VLGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
 

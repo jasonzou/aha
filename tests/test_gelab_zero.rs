@@ -8,7 +8,9 @@ use anyhow::Result;
 fn gelab_zero_generate() -> Result<()> {
     // test with cuda: RUST_BACKTRACE=1 cargo test -F cuda gelab_zero_generate -r -- --nocapture
 
-    let model_path = "/home/jhq/huggingface_model/stepfun-ai/GELab-Zero-4B-preview";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/stepfun-ai/GELab-Zero-4B-preview", save_dir);
 
     let message = r#"
     {
@@ -56,7 +58,7 @@ fn gelab_zero_generate() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut qwen3vl = Qwen3VLGenerateModel::init(model_path, None, None)?;
+    let mut qwen3vl = Qwen3VLGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
 

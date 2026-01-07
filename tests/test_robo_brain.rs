@@ -8,7 +8,9 @@ use anyhow::Result;
 fn robo_brain_generate() -> Result<()> {
     // test with cuda: RUST_BACKTRACE=1 cargo test -F cuda robo_brain_generate -r -- --nocapture
 
-    let model_path = "/home/jhq/huggingface_model/BAAI/RoboBrain2.0-3B/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/BAAI/RoboBrain2.0-3B/", save_dir);
 
     let message = r#"
     {
@@ -28,7 +30,7 @@ fn robo_brain_generate() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut model = Qwen2_5VLGenerateModel::init(model_path, None, None)?;
+    let mut model = Qwen2_5VLGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
 

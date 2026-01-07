@@ -32,10 +32,12 @@ fn deepseek_ocr_generate() -> Result<()> {
         "metadata": {"base_size": "640", "image_size": "640", "crop_mode": "false"}
     }
     "#;
-    let model_path = "/home/jhq/huggingface_model/deepseek-ai/DeepSeek-OCR/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/deepseek-ai/DeepSeek-OCR/", save_dir);
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut model = DeepseekOCRGenerateModel::init(model_path, None, None)?;
+    let mut model = DeepseekOCRGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
     let i_start = Instant::now();
@@ -84,10 +86,12 @@ async fn deepseek_ocr_stream() -> Result<()> {
         "metadata": {"base_size": "640", "image_size": "640", "crop_mode": "false"}
     }
     "#;
-    let model_path = "/home/jhq/huggingface_model/deepseek-ai/DeepSeek-OCR/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/deepseek-ai/DeepSeek-OCR/", save_dir);
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut model = DeepseekOCRGenerateModel::init(model_path, None, None)?;
+    let mut model = DeepseekOCRGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
     let mut stream = pin!(model.generate_stream(mes)?);

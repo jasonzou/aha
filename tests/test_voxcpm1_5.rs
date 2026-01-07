@@ -13,7 +13,9 @@ use anyhow::{Ok, Result};
 #[test]
 fn voxcpm1_5_use_message_generate() -> Result<()> {
     // RUST_BACKTRACE=1 cargo test -F cuda voxcpm1_5_use_message_generate -r -- --nocapture
-    let model_path = "/home/jhq/huggingface_model/OpenBMB/VoxCPM1.5/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/OpenBMB/VoxCPM1.5/", save_dir);
     let message = r#"
     {
         "model": "voxcpm1.5",
@@ -40,7 +42,7 @@ fn voxcpm1_5_use_message_generate() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut voxcpm_generate = VoxCPMGenerate::init(model_path, None, None)?;
+    let mut voxcpm_generate = VoxCPMGenerate::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
 
@@ -58,10 +60,12 @@ fn voxcpm1_5_use_message_generate() -> Result<()> {
 #[test]
 fn voxcpm1_5_generate() -> Result<()> {
     // RUST_BACKTRACE=1 cargo test -F cuda voxcpm1_5_generate -r -- --nocapture
-    let model_path = "/home/jhq/huggingface_model/OpenBMB/VoxCPM1.5/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/OpenBMB/VoxCPM1.5/", save_dir);
 
     let i_start = Instant::now();
-    let mut voxcpm_generate = VoxCPMGenerate::init(model_path, None, None)?;
+    let mut voxcpm_generate = VoxCPMGenerate::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
 
@@ -106,8 +110,10 @@ fn voxcpm1_5_generate() -> Result<()> {
 #[test]
 fn voxcpm1_5_tokenizer() -> Result<()> {
     // RUST_BACKTRACE=1 cargo test -F cuda voxcpm1_5_tokenizer -r -- --nocapture
-    let model_path = "/home/jhq/huggingface_model/OpenBMB/VoxCPM1.5/";
-    let tokenizer = SingleChineseTokenizer::new(model_path)?;
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/OpenBMB/VoxCPM1.5/", save_dir);
+    let tokenizer = SingleChineseTokenizer::new(&model_path)?;
     let ids = tokenizer.encode("你好啊，你吃饭了吗".to_string())?;
     println!("ids: {:?}", ids);
     Ok(())

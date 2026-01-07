@@ -9,7 +9,9 @@ use rocket::futures::StreamExt;
 fn qwen3vl_generate() -> Result<()> {
     // test with cuda: RUST_BACKTRACE=1 cargo test -F cuda,ffmpeg qwen3vl_generate -r -- --nocapture
 
-    let model_path = "/home/jhq/huggingface_model/Qwen/Qwen3-VL-2B-Instruct/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/Qwen/Qwen3-VL-2B-Instruct/", save_dir);
 
     let message = r#"
     {
@@ -36,7 +38,7 @@ fn qwen3vl_generate() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut qwen3vl = Qwen3VLGenerateModel::init(model_path, None, None)?;
+    let mut qwen3vl = Qwen3VLGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
 
@@ -58,7 +60,9 @@ fn qwen3vl_generate() -> Result<()> {
 async fn qwen3vl_stream() -> Result<()> {
     // test with cuda: RUST_BACKTRACE=1 cargo test -F cuda,ffmpeg qwen3vl_stream -r -- --nocapture
 
-    let model_path = "/home/jhq/huggingface_model/Qwen/Qwen3-VL-2B-Instruct/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/Qwen/Qwen3-VL-2B-Instruct/", save_dir);
 
     let message = r#"
     {
@@ -85,7 +89,7 @@ async fn qwen3vl_stream() -> Result<()> {
     "#;
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut qwen3vl = Qwen3VLGenerateModel::init(model_path, None, None)?;
+    let mut qwen3vl = Qwen3VLGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
 

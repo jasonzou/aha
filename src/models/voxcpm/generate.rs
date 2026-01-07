@@ -199,6 +199,10 @@ impl VoxCPMGenerate {
         )?;
         Ok(audio)
     }
+
+    pub fn sample_rate(&self) -> usize {
+        self.sample_rate
+    }
 }
 
 impl GenerateModel for VoxCPMGenerate {

@@ -32,10 +32,12 @@ fn paddleocr_vl_generate() -> Result<()> {
         "stream": false
     }
     "#;
-    let model_path = "/home/jhq/huggingface_model/PaddlePaddle/PaddleOCR-VL/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/PaddlePaddle/PaddleOCR-VL/", save_dir);
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut model = PaddleOCRVLGenerateModel::init(model_path, None, None)?;
+    let mut model = PaddleOCRVLGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
     let i_start = Instant::now();
@@ -79,10 +81,12 @@ async fn paddleocr_vl_stream() -> Result<()> {
         ]
     }
     "#;
-    let model_path = "/home/jhq/huggingface_model/PaddlePaddle/PaddleOCR-VL/";
+    let save_dir =
+        aha::utils::get_default_save_dir().ok_or(anyhow::anyhow!("Failed to get save dir"))?;
+    let model_path = format!("{}/PaddlePaddle/PaddleOCR-VL/", save_dir);
     let mes: ChatCompletionParameters = serde_json::from_str(message)?;
     let i_start = Instant::now();
-    let mut model = PaddleOCRVLGenerateModel::init(model_path, None, None)?;
+    let mut model = PaddleOCRVLGenerateModel::init(&model_path, None, None)?;
     let i_duration = i_start.elapsed();
     println!("Time elapsed in load model is: {:?}", i_duration);
     let mut stream = pin!(model.generate_stream(mes)?);

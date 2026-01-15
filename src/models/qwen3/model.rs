@@ -1,7 +1,8 @@
 use anyhow::Result;
 use candle_core::Tensor;
 use candle_nn::{
-    Embedding, Linear, Module, RmsNorm, VarBuilder, embedding, linear, linear_no_bias, rms_norm,
+    Embedding, Linear, Module, RmsNorm, VarBuilder, embedding, linear_b, linear_no_bias,
+    rms_norm,
 };
 
 use crate::{
@@ -36,23 +37,30 @@ impl Qwen3Attention {
         let num_key_value_heads = config.num_key_value_heads;
         let num_kv_groups = num_attention_heads / num_key_value_heads;
         let scaling = 1f64 / f64::sqrt(head_dim as f64);
-        let (q_proj, k_proj, v_proj, o_proj) = if config.attention_bias {
-            let q_proj = linear(hidden_size, num_attention_heads * head_dim, vb.pp("q_proj"))?;
-            let k_proj = linear(hidden_size, num_key_value_heads * head_dim, vb.pp("k_proj"))?;
-            let v_proj = linear(hidden_size, num_key_value_heads * head_dim, vb.pp("v_proj"))?;
-            let o_proj = linear(num_attention_heads * head_dim, hidden_size, vb.pp("o_proj"))?;
-            (q_proj, k_proj, v_proj, o_proj)
-        } else {
-            let q_proj =
-                linear_no_bias(hidden_size, num_attention_heads * head_dim, vb.pp("q_proj"))?;
-            let k_proj =
-                linear_no_bias(hidden_size, num_key_value_heads * head_dim, vb.pp("k_proj"))?;
-            let v_proj =
-                linear_no_bias(hidden_size, num_key_value_heads * head_dim, vb.pp("v_proj"))?;
-            let o_proj =
-                linear_no_bias(num_attention_heads * head_dim, hidden_size, vb.pp("o_proj"))?;
-            (q_proj, k_proj, v_proj, o_proj)
-        };
+        let q_proj = linear_b(
+            hidden_size,
+            num_attention_heads * head_dim,
+            config.attention_bias,
+            vb.pp("q_proj"),
+        )?;
+        let k_proj = linear_b(
+            hidden_size,
+            num_key_value_heads * head_dim,
+            config.attention_bias,
+            vb.pp("k_proj"),
+        )?;
+        let v_proj = linear_b(
+            hidden_size,
+            num_key_value_heads * head_dim,
+            config.attention_bias,
+            vb.pp("v_proj"),
+        )?;
+        let o_proj = linear_b(
+            num_attention_heads * head_dim,
+            hidden_size,
+            config.attention_bias,
+            vb.pp("o_proj"),
+        )?;
         let q_norm = rms_norm(head_dim, config.rms_norm_eps, vb.pp("q_norm"))?;
         let k_norm = rms_norm(head_dim, config.rms_norm_eps, vb.pp("k_norm"))?;
         Ok(Self {

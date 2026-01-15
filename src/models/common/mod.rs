@@ -3,8 +3,8 @@ use candle_core::{D, Tensor};
 use candle_nn::{
     Activation, BatchNorm, BatchNormConfig, Conv1d, Conv1dConfig, Conv2d, Conv2dConfig, Embedding,
     LayerNorm, LayerNormConfig, Linear, Module, RmsNorm, VarBuilder, batch_norm, conv1d,
-    conv1d_no_bias, conv2d, conv2d_no_bias, embedding, layer_norm, linear, linear_no_bias,
-    rms_norm,
+    conv1d_no_bias, conv2d, conv2d_no_bias, embedding, layer_norm, linear_b,
+    linear_no_bias, rms_norm,
 };
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
@@ -29,19 +29,9 @@ impl GateUpDownMLP {
         act_fn: Activation,
         bias: bool,
     ) -> Result<Self> {
-        let (gate_proj, up_proj, down_proj) = if bias {
-            (
-                linear(hidden_size, intermediate_size, vb.pp("gate_proj"))?,
-                linear(hidden_size, intermediate_size, vb.pp("up_proj"))?,
-                linear(intermediate_size, hidden_size, vb.pp("down_proj"))?,
-            )
-        } else {
-            (
-                linear_no_bias(hidden_size, intermediate_size, vb.pp("gate_proj"))?,
-                linear_no_bias(hidden_size, intermediate_size, vb.pp("up_proj"))?,
-                linear_no_bias(intermediate_size, hidden_size, vb.pp("down_proj"))?,
-            )
-        };
+        let gate_proj = linear_b(hidden_size, intermediate_size, bias, vb.pp("gate_proj"))?;
+        let up_proj = linear_b(hidden_size, intermediate_size, bias, vb.pp("up_proj"))?;
+        let down_proj = linear_b(intermediate_size, hidden_size, bias, vb.pp("down_proj"))?;
         Ok(Self {
             gate_proj,
             up_proj,
@@ -78,17 +68,9 @@ impl TwoLinearMLP {
         linear1_pp_name: &str,
         linear2_pp_name: &str,
     ) -> Result<Self> {
-        let (linear1, linear2) = if bias {
-            (
-                linear(in_dim, middle_dim, vb.pp(linear1_pp_name))?,
-                linear(middle_dim, out_dim, vb.pp(linear2_pp_name))?,
-            )
-        } else {
-            (
-                linear_no_bias(in_dim, middle_dim, vb.pp(linear1_pp_name))?,
-                linear_no_bias(middle_dim, out_dim, vb.pp(linear2_pp_name))?,
-            )
-        };
+        let linear1 = linear_b(in_dim, middle_dim, bias, vb.pp(linear1_pp_name))?;
+        let linear2 = linear_b(middle_dim, out_dim, bias, vb.pp(linear2_pp_name))?;
+
         Ok(Self {
             linear1,
             linear2,
@@ -141,53 +123,30 @@ impl NaiveAttention {
         let k_proj_pp_name = k_proj_pp_name.unwrap_or("k_proj");
         let v_proj_pp_name = v_proj_pp_name.unwrap_or("v_proj");
         let o_proj_pp_name = o_proj_pp_name.unwrap_or("o_proj");
-        let (q_proj, k_proj, v_proj, o_proj) = if bias {
-            (
-                linear(
-                    hidden_size,
-                    num_attention_heads * head_dim,
-                    vb.pp(q_proj_pp_name),
-                )?,
-                linear(
-                    hidden_size,
-                    num_key_value_heads * head_dim,
-                    vb.pp(k_proj_pp_name),
-                )?,
-                linear(
-                    hidden_size,
-                    num_key_value_heads * head_dim,
-                    vb.pp(v_proj_pp_name),
-                )?,
-                linear(
-                    num_attention_heads * head_dim,
-                    hidden_size,
-                    vb.pp(o_proj_pp_name),
-                )?,
-            )
-        } else {
-            (
-                linear_no_bias(
-                    hidden_size,
-                    num_attention_heads * head_dim,
-                    vb.pp(q_proj_pp_name),
-                )?,
-                linear_no_bias(
-                    hidden_size,
-                    num_key_value_heads * head_dim,
-                    vb.pp(k_proj_pp_name),
-                )?,
-                linear_no_bias(
-                    hidden_size,
-                    num_key_value_heads * head_dim,
-                    vb.pp(v_proj_pp_name),
-                )?,
-                linear_no_bias(
-                    num_attention_heads * head_dim,
-                    hidden_size,
-                    vb.pp(o_proj_pp_name),
-                )?,
-            )
-        };
+        let q_proj = linear_b(
+            hidden_size,
+            num_attention_heads * head_dim,
+            bias,
+            vb.pp(q_proj_pp_name),
+        )?;
+        let k_proj = linear_b(
+            hidden_size,
+            num_key_value_heads * head_dim,
+            bias,
+            vb.pp(k_proj_pp_name),
+        )?;
+        let v_proj = linear_b(
+            hidden_size,
+            num_key_value_heads * head_dim,
+            bias,
+            vb.pp(v_proj_pp_name),
+        )?;
+        let o_proj = linear_b(
+            num_attention_heads * head_dim,
+            hidden_size,
+            bias,
+            vb.pp(o_proj_pp_name),
+        )?;
 
         Ok(Self {
             q_proj,

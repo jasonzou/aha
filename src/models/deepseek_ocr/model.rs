@@ -1,10 +1,7 @@
 use anyhow::Result;
 use candle_core::{D, IndexOp, Tensor};
 use candle_nn::{
-    Activation, Conv2d, Embedding, Init, LayerNorm, Linear, Module, RmsNorm, VarBuilder, embedding,
-    linear, linear_no_bias,
-    ops::{sigmoid, softmax},
-    rms_norm,
+    Activation, Conv2d, Embedding, Init, LayerNorm, Linear, Module, RmsNorm, VarBuilder, embedding, linear, linear_b, linear_no_bias, ops::{sigmoid, softmax}, rms_norm
 };
 use candle_transformers::models::segment_anything::LayerNorm2d;
 
@@ -79,11 +76,8 @@ impl Attention {
     ) -> Result<Self> {
         let head_dim = dim / num_heads;
         let scaling = 1.0 / (head_dim as f64).sqrt();
-        let qkv = if qkv_bias {
-            linear(dim, dim * 3, vb.pp("qkv"))?
-        } else {
-            linear_no_bias(dim, dim * 3, vb.pp("qkv"))?
-        };
+        let qkv = linear_b(dim, dim * 3, qkv_bias, vb.pp("qkv"))?;
+        
         let proj = linear(dim, dim, vb.pp("proj"))?;
         let mut rel_pos_h = None;
         let mut rel_pos_w = None;

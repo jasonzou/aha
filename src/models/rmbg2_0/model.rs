@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use candle_core::{D, DType, Device, IndexOp, Shape, Tensor};
 use candle_nn::{
     Activation, BatchNorm, Conv2d, Init, LayerNorm, Linear, Module, ModuleT, VarBuilder, linear,
-    linear_no_bias, ops::sigmoid,
+    linear_b, linear_no_bias, ops::sigmoid,
 };
 
 use crate::{
@@ -91,11 +91,8 @@ impl WindowAttention {
     ) -> Result<Self> {
         let head_dim = dim / num_heads;
         let scaling = 1.0 / (head_dim as f64).sqrt();
-        let qkv = if qkv_bias {
-            linear(dim, dim * 3, vb.pp("qkv"))?
-        } else {
-            linear_no_bias(dim, dim * 3, vb.pp("qkv"))?
-        };
+        let qkv = linear_b(dim, dim * 3, qkv_bias, vb.pp("qkv"))?;
+
         let proj = linear(dim, dim, vb.pp("proj"))?;
         let relative_position_bias_table = vb.get_with_hints(
             ((2 * window_size.0 - 1) * (2 * window_size.1 - 1), num_heads),

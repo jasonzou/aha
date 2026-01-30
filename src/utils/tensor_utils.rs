@@ -2,7 +2,23 @@ use anyhow::{Result, anyhow};
 use candle_core::{D, DType, Device, IndexOp, Tensor, shape::Dim};
 use candle_nn::ops::sigmoid;
 
-pub fn mask_filled(on_true: &Tensor, mask: &Tensor, on_false: f32) -> Result<Tensor> {
+pub enum PaddingSide {
+    Left,
+    Right,
+}
+
+pub fn masked_fill_zeros(hidden_states: &Tensor, mask: &Tensor) -> Result<Tensor> {
+    // hidden_states: (bs, seq_len, hidden_dim)
+    // mask: (bs, seq_len)
+    let on_false = hidden_states.zeros_like()?;
+    let mask = mask
+        .unsqueeze(D::Minus1)?
+        .broadcast_as(hidden_states.shape())?;
+    let hidden_states = mask.where_cond(&hidden_states, &on_false)?;
+    Ok(hidden_states)
+}
+
+pub fn attn_masked_fill(on_true: &Tensor, mask: &Tensor, on_false: f32) -> Result<Tensor> {
     let (mask_seq_len, _) = mask.dims2()?;
     let (_, _, seq_len, _) = on_true.dims4()?;
     assert!(
@@ -476,6 +492,44 @@ pub fn interpolate_linear_1d(
     Ok(output)
 }
 
+pub fn interpolate_nearest_1d(t: &Tensor, target_size: usize) -> Result<Tensor> {
+    // t: [b, channels, features]
+    if t.rank() != 3 {
+        return Err(anyhow::anyhow!(
+            "Input rank must have equal to 3 dimensions"
+        ));
+    }
+    let shape = t.dims();
+    let orig_size = shape[shape.len() - 1];
+    if orig_size == target_size {
+        return Ok(t.clone());
+    }
+
+    let (bs, channels, _) = t.dims3()?;
+    let mut output = Tensor::zeros((bs, channels, target_size), t.dtype(), t.device())?;
+    let coords = compute_1d_coords(orig_size, target_size, None)?;
+
+    for b in 0..bs {
+        for c in 0..channels {
+            let input_slice = t.i((b, c))?;
+            let mut out_i = Vec::new();
+
+            for &coord in coords.iter().take(target_size) {
+                // Nearest neighbor: round to nearest integer coordinate
+                let nearest_idx = coord.floor() as usize;
+                let clamped_idx = nearest_idx.min(orig_size - 1);
+
+                let value = input_slice.get(clamped_idx)?;
+                out_i.push(value);
+            }
+            let out_i = Tensor::stack(&out_i, 0)?.unsqueeze(0)?.unsqueeze(0)?;
+            output = output.slice_assign(&[(b..b + 1), (c..c + 1), (0..target_size)], &out_i)?;
+        }
+    }
+    output = output.contiguous()?;
+    Ok(output)
+}
+
 pub fn interpolate_bilinear(
     input: &Tensor,
     target_size: (usize, usize),
@@ -908,4 +962,84 @@ pub fn pad_replicate_last_dim(t: &Tensor, pad: (usize, usize)) -> Result<Tensor>
         pad_tensor = Tensor::cat(&[&pad_tensor, &right_pad], D::Minus1)?;
     }
     Ok(pad_tensor)
+}
+
+pub fn log10(t: &Tensor) -> Result<Tensor> {
+    Ok(t.log()?.affine(1.0 / 10.0_f64.ln(), 0.0)?)
+}
+
+pub fn z_score_normalize(t: &Tensor, dim: usize) -> Result<Tensor> {
+    let rank = t.rank();
+    if dim >= rank {
+        return Err(anyhow!(format!("input dim {} must < rank {}", dim, rank)));
+    }
+    Ok(t.broadcast_sub(&t.mean_keepdim(dim)?)?
+        .broadcast_div(&t.var_keepdim(dim)?.sqrt()?)?)
+}
+
+pub fn l2_normalize(t: &Tensor, dim: usize) -> Result<Tensor> {
+    let rank = t.rank();
+    if dim >= rank {
+        return Err(anyhow!(format!("input dim {} must < rank {}", dim, rank)));
+    }
+    let l2_norm = t.sqr()?.sum_keepdim(dim)?.sqrt()?;
+    Ok(t.broadcast_div(&l2_norm)?)
+}
+
+pub fn l1_normalize(t: &Tensor, dim: usize) -> Result<Tensor> {
+    let rank = t.rank();
+    if dim >= rank {
+        return Err(anyhow!(format!("input dim {} must < rank {}", dim, rank)));
+    }
+    let l1_norm = t.abs()?.sum_keepdim(dim)?;
+    Ok(t.broadcast_div(&l1_norm)?)
+}
+
+pub fn pool1d(xs: &Tensor, pool_size: usize, ceil_mode: bool, stype: &str) -> Result<Tensor> {
+    // xs: (bs, c, dim)
+    // ceil_mode: 是否保留不完整窗口，为true时通过pad实现
+    if pool_size == 0 {
+        return Err(anyhow!("pool_size must be greater than 0"));
+    }
+    let (bs, c, dim) = xs.dims3()?;
+    let xs_reshape = if ceil_mode {
+        let remain = dim % pool_size;
+        if remain > 0 {
+            let pad = pool_size - remain;
+            let xs_pad = pad_replicate_last_dim(xs, (0, pad))?;
+            xs_pad.reshape((bs, c, (), pool_size))?
+        } else {
+            xs.reshape((bs, c, (), pool_size))?
+        }
+    } else {
+        let remain = dim % pool_size;
+        if remain > 0 {
+            let xs_del = xs.narrow(D::Minus1, 0, dim - remain)?;
+            xs_del.reshape((bs, c, (), pool_size))?
+        } else {
+            xs.reshape((bs, c, (), pool_size))?
+        }
+    };
+    let xs_pool = match stype {
+        "avg" => xs_reshape.mean(D::Minus1)?,
+        "max" => xs_reshape.max(D::Minus1)?,
+        "min" => xs_reshape.min(D::Minus1)?,
+        _ => {
+            return Err(anyhow!(
+                "unsupported pool type: {}, supported types are: avg, max, min",
+                stype
+            ));
+        }
+    };
+    Ok(xs_pool)
+}
+
+pub fn statistics_pooling(xs: &Tensor, dim: D, keepdim: bool) -> Result<Tensor> {
+    let mean = xs.mean(dim)?;
+    let std = xs.var(dim)?.sqrt()?;
+    let mut stats = Tensor::cat(&[mean, std], D::Minus1)?;
+    if keepdim {
+        stats = stats.unsqueeze(dim)?;
+    }
+    Ok(stats)
 }

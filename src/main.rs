@@ -1,6 +1,6 @@
 use std::{net::IpAddr, str::FromStr, time::Duration};
 
-use aha::{models::WhichModel, utils::get_default_save_dir};
+use aha::{models::WhichModel, utils::{download_model, get_default_save_dir}};
 use clap::Parser;
 use modelscope::ModelScope;
 use rocket::{
@@ -34,38 +34,38 @@ struct Args {
     #[arg(long)]
     download_retries: Option<u32>,
 }
-async fn download_model(model_id: &str, save_dir: &str, max_retries: u32) -> anyhow::Result<()> {
-    let mut attempts = 0u32;
-    loop {
-        attempts += 1;
-        println!(
-            "Attempting to download model (attempt {}/{})",
-            attempts, max_retries
-        );
+// async fn download_model(model_id: &str, save_dir: &str, max_retries: u32) -> anyhow::Result<()> {
+//     let mut attempts = 0u32;
+//     loop {
+//         attempts += 1;
+//         println!(
+//             "Attempting to download model (attempt {}/{})",
+//             attempts, max_retries
+//         );
 
-        match ModelScope::download(model_id, save_dir).await {
-            Ok(()) => {
-                println!("Model downloaded successfully");
-                return Ok(());
-            }
-            Err(e) => {
-                if attempts >= max_retries {
-                    return Err(anyhow::anyhow!(
-                        "Failed to download model after {} attempts. Last error: {}",
-                        max_retries,
-                        e
-                    ));
-                }
+//         match ModelScope::download(model_id, save_dir).await {
+//             Ok(()) => {
+//                 println!("Model downloaded successfully");
+//                 return Ok(());
+//             }
+//             Err(e) => {
+//                 if attempts >= max_retries {
+//                     return Err(anyhow::anyhow!(
+//                         "Failed to download model after {} attempts. Last error: {}",
+//                         max_retries,
+//                         e
+//                     ));
+//                 }
 
-                println!(
-                    "Download failed (attempt {}): {}. Retrying in 2 seconds...",
-                    attempts, e
-                );
-                sleep(Duration::from_secs(2)).await;
-            }
-        }
-    }
-}
+//                 println!(
+//                     "Download failed (attempt {}): {}. Retrying in 2 seconds...",
+//                     attempts, e
+//                 );
+//                 sleep(Duration::from_secs(2)).await;
+//             }
+//         }
+//     }
+// }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

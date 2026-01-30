@@ -1,8 +1,12 @@
 pub mod common;
+pub mod campplus;
 pub mod deepseek_ocr;
+pub mod feature_extractor;
 pub mod fun_asr_nano;
 pub mod glm_asr_nano;
 pub mod hunyuan_ocr;
+pub mod index_tts2;
+pub mod mask_gct;
 pub mod minicpm4;
 pub mod paddleocr_vl;
 pub mod qwen2_5vl;
@@ -10,6 +14,7 @@ pub mod qwen3;
 pub mod qwen3vl;
 pub mod rmbg2_0;
 pub mod voxcpm;
+pub mod w2v_bert_2_0;
 
 use aha_openai_dive::v1::resources::chat::{
     ChatCompletionChunkResponse, ChatCompletionParameters, ChatCompletionResponse,
@@ -51,7 +56,7 @@ pub enum WhichModel {
     HunyuanOCR,
     #[value(name = "paddleocr-vl")]
     PaddleOCRVL,
-    #[value(name = "RMBG2.0")]
+    #[value(name = "rmbg2.0")]
     RMBG2_0,
     #[value(name = "voxcpm")]
     VoxCPM,

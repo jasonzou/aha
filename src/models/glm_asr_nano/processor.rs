@@ -9,8 +9,9 @@ use crate::{
     utils::{
         audio_utils::{
             apply_stft, create_hann_window, extract_audios, extract_frames, mel_filter_bank,
+            torch_stft,
         },
-        tensor_utils::{pad_reflect_last_dim, split_tensor},
+        tensor_utils::{log10, pad_reflect_last_dim, split_tensor},
     },
 };
 
@@ -87,19 +88,21 @@ impl GlmAsrNanoProcessor {
         let waveform = pad_reflect_last_dim(waveform, (pad, pad))?;
         let (_, samples) = waveform.dims2()?;
 
-        // 计算输出维度
+        // // (bs, n_frames, n_fft)
+        // let frames = extract_frames(&waveform, self.n_fft, self.hop_length)?;
+        // // 应用汉明窗口
+        // let result = frames.broadcast_mul(&self.window)?;
+        // // 傅立叶变换
+        // let magnitudes = apply_stft(&result)?.transpose(D::Minus1, D::Minus2)?;
+        let magnitudes = torch_stft(&waveform, self.n_fft, self.hop_length, &self.window)?
+            .transpose(D::Minus1, D::Minus2)?;
         let n_frames = (samples - self.n_fft) / self.hop_length + 1;
-        // (bs, n_frames, n_fft)
-        let frames = extract_frames(&waveform, self.n_fft, self.hop_length)?;
-        // 应用汉明窗口
-        let result = frames.broadcast_mul(&self.window)?;
-        // 傅立叶变换
-        let magnitudes = apply_stft(&result)?.transpose(D::Minus1, D::Minus2)?;
         let magnitudes = magnitudes.narrow(D::Minus1, 0, n_frames - 1)?;
         let mel_spec = self.mel_filters.broadcast_matmul(&magnitudes)?;
         let mel_spec = mel_spec.clamp(1e-10f32, f32::INFINITY)?;
-        let ln_spec = mel_spec.log()?;
-        let log10_spec = ln_spec.broadcast_div(&Tensor::new(f32::ln(10.0), mel_spec.device())?)?;
+        // let ln_spec = mel_spec.log()?;
+        // let log10_spec = ln_spec.broadcast_div(&Tensor::new(f32::ln(10.0), mel_spec.device())?)?;
+        let log10_spec = log10(&mel_spec)?;
         let max_val = log10_spec.max_all()?.affine(1.0, -8.0)?;
         let log10_spec = log10_spec.broadcast_maximum(&max_val)?;
         let log_spec = log10_spec.affine(1.0, 4.0)?.affine(1.0 / 4.0, 0.0)?;

@@ -25,7 +25,7 @@ show_help() {
     echo "  deepseek-ocr"
     echo "  hunyuan-ocr"
     echo "  paddleocr-vl"
-    echo "  RMBG2.0"
+    echo "  rmbg2.0"
     echo "  voxcpm"
     echo "  voxcpm1.5"
     echo "  glm-asr-nano-2512"
@@ -77,7 +77,7 @@ case $MODEL_ALIAS in
     "paddleocr-vl")
         MODEL_ID="PaddlePaddle/PaddleOCR-VL"
         ;;
-    "RMBG2.0")
+    "rmbg2.0")
         MODEL_ID="briaai/RMBG-2.0"
         ;;
     "voxcpm")

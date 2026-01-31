@@ -1,18 +1,24 @@
 //! PaddleOCR-VL exec implementation for CLI `run` subcommand
 
+use std::time::Instant;
+
+use anyhow::{Ok, Result};
+
 use crate::exec::ExecModel;
 use crate::models::{GenerateModel, paddleocr_vl::generate::PaddleOCRVLGenerateModel};
-use anyhow::{Ok, Result};
-use std::time::Instant;
 
 pub struct PaddleOVLExec;
 
 impl ExecModel for PaddleOVLExec {
-    fn run(input: &str, output: Option<&str>, weight_path: &str) -> Result<()> {
-        let input_path = if input.starts_with("file://") {
-            input.to_string()
+    fn run(input: &[String], output: Option<&str>, weight_path: &str) -> Result<()> {
+        let url = &input[0];
+        let input_url = if url.starts_with("http://")
+            || url.starts_with("https://")
+            || url.starts_with("file://")
+        {
+            url.clone()
         } else {
-            format!("file://{}", input)
+            format!("file://{}", url)
         };
 
         let i_start = Instant::now();
@@ -32,12 +38,16 @@ impl ExecModel for PaddleOVLExec {
                             "image_url": {{
                                 "url": "{}"
                             }}
+                        }},
+                        {{
+                            "type": "text", 
+                            "text": "OCR:"
                         }}
                     ]
                 }}
             ]
         }}"#,
-            input_path
+            input_url
         );
         let mes = serde_json::from_str(&message)?;
 

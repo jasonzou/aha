@@ -65,7 +65,7 @@ aha -m qwen3vl-2b
 
 **语法：**
 ```bash
-aha run [OPTIONS] --model <MODEL> --input <INPUT> --weight-path <WEIGHT_PATH>
+aha run [OPTIONS] --model <MODEL> --input <INPUT> [--input <INPUT2>] --weight-path <WEIGHT_PATH>
 ```
 
 **选项：**
@@ -73,30 +73,39 @@ aha run [OPTIONS] --model <MODEL> --input <INPUT> --weight-path <WEIGHT_PATH>
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
 | `-m, --model <MODEL>` | 模型类型（必选） | - |
-| `-in, --input <INPUT>` | 输入文本或文件路径（模型特定解释） | - |
-| `-out, --output <OUTPUT>` | 输出文件路径（可选，未指定则自动生成） | - |
+| `-i, --input <INPUT>` | 输入文本或文件路径（模型特定解释，支持1-2个参数, input1： 提示文本, input2: 文件地址） | - |
+| `-o, --output <OUTPUT>` | 输出文件路径（可选，未指定则自动生成） | - |
 | `--weight-path <WEIGHT_PATH>` | 本地模型权重路径（必选） | - |
 
 **示例：**
 
 ```bash
-# VoxCPM1.5 文字转语音
-aha run -m voxcpm1.5 -in "太阳当空照" -out output.wav --weight-path /path/to/model
+# VoxCPM1.5 文字转语音（单个输入）
+aha run -m voxcpm1.5 -i "太阳当空照" -o output.wav --weight-path /path/to/model
 
-# VoxCPM1.5 从文件读取输入
-aha run -m voxcpm1.5 -in "file://./input.txt" --weight-path /path/to/model
+# VoxCPM1.5 从文件读取输入（单个输入）
+aha run -m voxcpm1.5 -i "file://./input.txt" --weight-path /path/to/model
 
-# MiniCPM4 文本生成
-aha run -m minicpm4-0.5b -in "你好" --weight-path /path/to/model
+# MiniCPM4 文本生成（单个输入）
+aha run -m minicpm4-0.5b -i "你好" --weight-path /path/to/model
 
-# DeepSeek OCR 图片识别
-aha run -m deepseek-ocr -in "image.jpg" --weight-path /path/to/model
+# DeepSeek OCR 图片识别（单个输入）
+aha run -m deepseek-ocr -i "image.jpg" --weight-path /path/to/model
 
-# RMBG2.0 背景移除
-aha run -m RMBG2.0 -in "photo.png" -out "no_bg.png" --weight-path /path/to/model
+# RMBG2.0 背景移除（单个输入）
+aha run -m RMBG2.0 -i "photo.png" -o "no_bg.png" --weight-path /path/to/model
 
-# GLM-ASR 语音识别
-aha run -m glm-asr-nano-2512 -in "audio.wav" -in "请转写这段音频" --weight-path /path/to/model
+# GLM-ASR 语音识别（两个输入：提示文本 + 音频文件）
+aha run -m glm-asr-nano-2512 -i "请转写这段音频" -i "audio.wav" --weight-path /path/to/model
+
+# Fun-ASR 语音识别（两个输入：提示文本 + 音频文件）
+aha run -m fun-asr-nano-2512 -i "语音转写：" -i "audio.wav" --weight-path /path/to/model
+
+# qwen3 文本生成（单个输入）
+aha run -m qwen3-0.6b -i "你好" --weight-path /path/to/model
+
+# qwen2.5vl 图像理解（两个输入：提示文本 + 图片文件）
+aha run -m qwen2.5vl-3b -i "请分析图片并提取所有可见文本内容，按从左到右、从上到下的布局，返回纯文本" -i "image.jpg"  --weight-path /path/to/model
 ```
 
 ### serv - 启动服务

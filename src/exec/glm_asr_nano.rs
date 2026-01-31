@@ -1,19 +1,24 @@
 //! GLM-ASR-Nano-2512 exec implementation for CLI `run` subcommand
 
+use std::time::Instant;
+
+use anyhow::{Ok, Result};
+
 use crate::exec::ExecModel;
 use crate::models::{GenerateModel, glm_asr_nano::generate::GlmAsrNanoGenerateModel};
-use anyhow::{Ok, Result};
-use std::time::Instant;
+use crate::utils::get_file_path;
 
 pub struct GlmASRNanoExec;
 
 impl ExecModel for GlmASRNanoExec {
-    fn run(input: &str, output: Option<&str>, weight_path: &str) -> Result<()> {
-        let target_text = if input.starts_with("file://") {
-            let path = &input[7..];
+    fn run(input: &[String], output: Option<&str>, weight_path: &str) -> Result<()> {
+        let input_text = &input[0];
+        let target_text = if input_text.starts_with("file://") {
+            // let path = &input[7..];
+            let path = get_file_path(input_text)?;
             std::fs::read_to_string(path)?
         } else {
-            input.to_string()
+            input_text.clone()
         };
 
         let i_start = Instant::now();
@@ -23,10 +28,14 @@ impl ExecModel for GlmASRNanoExec {
 
         // Create ChatCompletionParameters for ASR
         // Input should be an audio file path
-        let input_url = if input.starts_with("http://") || input.starts_with("https://") || input.starts_with("file://") {
-            input.to_string()
+        let url = &input[1];
+        let input_url = if url.starts_with("http://")
+            || url.starts_with("https://")
+            || url.starts_with("file://")
+        {
+            url.clone()
         } else {
-            format!("file://{}", input)
+            format!("file://{}", url)
         };
 
         let message = format!(

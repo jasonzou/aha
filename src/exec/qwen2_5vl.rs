@@ -1,21 +1,33 @@
 //! Qwen2.5VL-3B exec implementation for CLI `run` subcommand
 
+use std::time::Instant;
+
+use anyhow::{Ok, Result};
+
 use crate::exec::ExecModel;
 use crate::models::{GenerateModel, qwen2_5vl::generate::Qwen2_5VLGenerateModel};
-use anyhow::{Ok, Result};
-use std::time::Instant;
+use crate::utils::get_file_path;
 
 pub struct Qwen2_5vlExec;
 
 impl ExecModel for Qwen2_5vlExec {
-    fn run(input: &str, output: Option<&str>, weight_path: &str) -> Result<()> {
-        let target_text = if input.starts_with("file://") {
-            let path = &input[7..];
+    fn run(input: &[String], output: Option<&str>, weight_path: &str) -> Result<()> {
+        let input_text = &input[0];
+        let target_text = if input_text.starts_with("file://") {
+            let path = get_file_path(input_text)?;
             std::fs::read_to_string(path)?
         } else {
-            input.to_string()
+            input_text.clone()
         };
-
+        let url = &input[1];
+        let input_url = if url.starts_with("http://")
+            || url.starts_with("https://")
+            || url.starts_with("file://")
+        {
+            url.clone()
+        } else {
+            format!("file://{}", url)
+        };
         let i_start = Instant::now();
         let mut model = Qwen2_5VLGenerateModel::init(weight_path, None, None)?;
         let i_duration = i_start.elapsed();
@@ -27,11 +39,22 @@ impl ExecModel for Qwen2_5vlExec {
             "messages": [
                 {{
                     "role": "user",
-                    "content": "{}"
+                    "content": [
+                        {{
+                            "type": "image",
+                            "image_url": {{
+                                "url": "{}"
+                            }}
+                        }},
+                        {{
+                            "type": "text", 
+                            "text": "{}"
+                        }}
+                    ]
                 }}
             ]
         }}"#,
-            target_text.replace('"', "\\\"")
+            input_url, target_text
         );
         let mes = serde_json::from_str(&message)?;
 

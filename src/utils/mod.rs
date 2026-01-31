@@ -3,7 +3,7 @@ pub mod img_utils;
 pub mod tensor_utils;
 pub mod video_utils;
 
-use std::{fs, process::Command};
+use std::{fs, path::PathBuf, process::Command};
 
 use aha_openai_dive::v1::resources::{
     chat::{
@@ -489,4 +489,18 @@ pub fn get_default_save_dir() -> Option<String> {
         }
         path.to_string_lossy().to_string()
     })
+}
+
+pub fn get_file_path(file: &str) -> Result<PathBuf> {
+    let path = url::Url::parse(file)?;
+    let path = path.to_file_path();
+    let path = match path {
+        Ok(path) => path,
+        Err(_) => {
+            let mut path = file.to_owned();
+            path = path.split_off(7);
+            PathBuf::from(path)
+        }
+    };
+    Ok(path)
 }

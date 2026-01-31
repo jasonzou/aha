@@ -1,18 +1,24 @@
 //! Hunyuan-OCR exec implementation for CLI `run` subcommand
 
+use std::time::Instant;
+
+use anyhow::{Ok, Result};
+
 use crate::exec::ExecModel;
 use crate::models::{GenerateModel, hunyuan_ocr::generate::HunyuanOCRGenerateModel};
-use anyhow::{Ok, Result};
-use std::time::Instant;
 
 pub struct HunyuanORExec;
 
 impl ExecModel for HunyuanORExec {
-    fn run(input: &str, output: Option<&str>, weight_path: &str) -> Result<()> {
-        let input_path = if input.starts_with("file://") {
-            input.to_string()
+    fn run(input: &[String], output: Option<&str>, weight_path: &str) -> Result<()> {
+        let url = &input[0];
+        let input_url = if url.starts_with("http://")
+            || url.starts_with("https://")
+            || url.starts_with("file://")
+        {
+            url.clone()
         } else {
-            format!("file://{}", input)
+            format!("file://{}", url)
         };
 
         let i_start = Instant::now();
@@ -32,12 +38,16 @@ impl ExecModel for HunyuanORExec {
                             "image_url": {{
                                 "url": "{}"
                             }}
+                        }},
+                        {{
+                            "type": "text", 
+                            "text": "检测并识别图片中的文字，将文本坐标格式化输出。"
                         }}
                     ]
                 }}
             ]
         }}"#,
-            input_path
+            input_url
         );
         let mes = serde_json::from_str(&message)?;
 

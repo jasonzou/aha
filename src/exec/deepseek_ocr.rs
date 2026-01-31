@@ -1,18 +1,24 @@
 //! DeepSeek-OCR exec implementation for CLI `run` subcommand
 
+use std::time::Instant;
+
+use anyhow::{Ok, Result};
+
 use crate::exec::ExecModel;
 use crate::models::{GenerateModel, deepseek_ocr::generate::DeepseekOCRGenerateModel};
-use anyhow::{Ok, Result};
-use std::time::Instant;
 
 pub struct DeepSeekORExec;
 
 impl ExecModel for DeepSeekORExec {
-    fn run(input: &str, output: Option<&str>, weight_path: &str) -> Result<()> {
-        let input_path = if input.starts_with("file://") {
-            input.to_string()
+    fn run(input: &[String], output: Option<&str>, weight_path: &str) -> Result<()> {
+        let url = &input[0];
+        let input_url = if url.starts_with("http://")
+            || url.starts_with("https://")
+            || url.starts_with("file://")
+        {
+            url.clone()
         } else {
-            format!("file://{}", input)
+            format!("file://{}", url)
         };
 
         let i_start = Instant::now();
@@ -32,12 +38,16 @@ impl ExecModel for DeepSeekORExec {
                             "image_url": {{
                                 "url": "{}"
                             }}
+                        }},
+                        {{
+                            "type": "text", 
+                            "text": "<image>\nConvert the document to markdown. "
                         }}
                     ]
                 }}
             ]
         }}"#,
-            input_path
+            input_url
         );
         let mes = serde_json::from_str(&message)?;
 

@@ -1,38 +1,88 @@
 //! Qwen3VL-2B exec implementation for CLI `run` subcommand
 
+use std::time::Instant;
+
+use anyhow::{Ok, Result};
+
 use crate::exec::ExecModel;
 use crate::models::{GenerateModel, qwen3vl::generate::Qwen3VLGenerateModel};
-use anyhow::{Ok, Result};
-use std::time::Instant;
+use crate::utils::get_file_path;
 
 pub struct Qwen3vlExec;
 
 impl ExecModel for Qwen3vlExec {
-    fn run(input: &str, output: Option<&str>, weight_path: &str) -> Result<()> {
-        let target_text = if input.starts_with("file://") {
-            let path = &input[7..];
+    fn run(input: &[String], output: Option<&str>, weight_path: &str) -> Result<()> {
+        let input_text = &input[0];
+        let target_text = if input_text.starts_with("file://") {
+            let path = get_file_path(input_text)?;
             std::fs::read_to_string(path)?
         } else {
-            input.to_string()
+            input_text.clone()
         };
 
         let i_start = Instant::now();
         let mut model = Qwen3VLGenerateModel::init(weight_path, None, None)?;
         let i_duration = i_start.elapsed();
         println!("Time elapsed in load model is: {:?}", i_duration);
-
-        let message = format!(
-            r#"{{
+        let url = &input[1];
+        let input_url = if url.starts_with("http://")
+            || url.starts_with("https://")
+            || url.starts_with("file://")
+        {
+            url.clone()
+        } else {
+            format!("file://{}", url)
+        };
+        let message = if input_url.ends_with("mp4") {
+            format!(
+                r#"{{
             "model": "qwen3vl",
             "messages": [
                 {{
                     "role": "user",
-                    "content": "{}"
+                    "content": [
+                        {{
+                            "type": "video",
+                            "video_url": 
+                            {{
+                                "url": "{}"
+                            }}
+                        }},
+                        {{
+                            "type": "text", 
+                            "text": "{}"
+                        }}
+                    ]
                 }}
             ]
         }}"#,
-            target_text.replace('"', "\\\"")
-        );
+                input_url, target_text
+            )
+        } else {
+            format!(
+                r#"{{
+            "model": "qwen2.5vl",
+            "messages": [
+                {{
+                    "role": "user",
+                    "content": [
+                        {{
+                            "type": "image",
+                            "image_url": {{
+                                "url": "{}"
+                            }}
+                        }},
+                        {{
+                            "type": "text", 
+                            "text": "{}"
+                        }}
+                    ]
+                }}
+            ]
+        }}"#,
+                input_url, target_text
+            )
+        };
         let mes = serde_json::from_str(&message)?;
 
         let i_start = Instant::now();

@@ -129,8 +129,8 @@ struct RunArgs {
     model: WhichModel,
 
     /// Input text or file path
-    #[arg(short, long)]
-    input: String,
+    #[arg(short, long, num_args = 1..=2, value_delimiter = ' ')]
+    input: Vec<String>,
 
     /// Output file path (optional)
     #[arg(short, long)]
@@ -219,7 +219,7 @@ fn run_list() -> anyhow::Result<()> {
 
     println!("Available models:");
     println!();
-    println!("{:<30} {}", "Model Name", "ModelScope ID");
+    println!("{:<30} ModelScope ID", "Model Name");
     println!("{}", "-".repeat(80));
     for model in models {
         let possible_value = model.to_possible_value().unwrap();
@@ -233,7 +233,12 @@ fn run_list() -> anyhow::Result<()> {
 
 /// Run the 'cli' subcommand: download model (if needed) and start service
 async fn run_cli(args: CliArgs) -> anyhow::Result<()> {
-    let CliArgs { common, weight_path, save_dir, download_retries } = args;
+    let CliArgs {
+        common,
+        weight_path,
+        save_dir,
+        download_retries,
+    } = args;
     let model_id = get_model_id(common.model);
 
     let model_path = match weight_path {
@@ -257,7 +262,10 @@ async fn run_cli(args: CliArgs) -> anyhow::Result<()> {
 
 /// Run the 'serv' subcommand: start service only (no download)
 async fn run_serv(args: ServArgs) -> anyhow::Result<()> {
-    let ServArgs { common, weight_path } = args;
+    let ServArgs {
+        common,
+        weight_path,
+    } = args;
 
     init(common.model, weight_path)?;
     start_http_server(common.address, common.port).await?;
@@ -267,7 +275,11 @@ async fn run_serv(args: ServArgs) -> anyhow::Result<()> {
 
 /// Run the 'download' subcommand: download model only (no server)
 async fn run_download(args: DownloadArgs) -> anyhow::Result<()> {
-    let DownloadArgs { model, save_dir, download_retries } = args;
+    let DownloadArgs {
+        model,
+        save_dir,
+        download_retries,
+    } = args;
     let model_id = get_model_id(model);
 
     let save_dir = match save_dir {
@@ -285,7 +297,12 @@ async fn run_download(args: DownloadArgs) -> anyhow::Result<()> {
 fn run_run(args: RunArgs) -> anyhow::Result<()> {
     use aha::exec::ExecModel;
 
-    let RunArgs { model, input, output, weight_path } = args;
+    let RunArgs {
+        model,
+        input,
+        output,
+        weight_path,
+    } = args;
 
     match model {
         WhichModel::MiniCPM4_0_5B => {

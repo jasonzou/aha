@@ -1,19 +1,23 @@
 //! VoxCPM exec implementation for CLI `run` subcommand
 
-use crate::exec::ExecModel;
-use crate::models::voxcpm::generate::VoxCPMGenerate;
-use anyhow::{Ok, Result};
 use std::time::Instant;
+
+use anyhow::{Ok, Result};
+
+use crate::models::voxcpm::generate::VoxCPMGenerate;
+use crate::{exec::ExecModel, utils::get_file_path};
 
 pub struct VoxCPMExec;
 
 impl ExecModel for VoxCPMExec {
-    fn run(input: &str, output: Option<&str>, weight_path: &str) -> Result<()> {
-        let target_text = if input.starts_with("file://") {
-            let path = &input[7..];
+    fn run(input: &[String], output: Option<&str>, weight_path: &str) -> Result<()> {
+        let input_text = &input[0];
+        let target_text = if input_text.starts_with("file://") {
+            // let path = &input[7..];
+            let path = get_file_path(input_text)?;
             std::fs::read_to_string(path)?
         } else {
-            input.to_string()
+            input_text.clone()
         };
 
         let i_start = Instant::now();
@@ -24,10 +28,10 @@ impl ExecModel for VoxCPMExec {
         let i_start = Instant::now();
         let audio = voxcpm_generate.inference(
             target_text,
-            Some("啥子小师叔，打狗还要看主人，你再要继续，我就是你的对手".to_string()), //todo args
-            Some("file://./assets/audio/voice_01.wav".to_string()),  //todo args
+            Some("啥子小师叔，打狗还要看主人，你再要继续，我就是你的对手".to_string()), // todo args
+            Some("file://./assets/audio/voice_01.wav".to_string()),                     // todo args
             2,
-            100,   // max_len (voxcpm uses 100 vs voxcpm1.5's 4096)
+            100, // max_len (voxcpm uses 100 vs voxcpm1.5's 4096)
             10,
             2.0,
             6.0,

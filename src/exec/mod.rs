@@ -33,5 +33,5 @@ pub trait ExecModel {
     /// # Returns
     /// * `Ok(())` on success
     /// * `Err(anyhow::Error)` on failure
-    fn run(input: &str, output: Option<&str>, weight_path: &str) -> Result<()>;
+    fn run(input: &[String], output: Option<&str>, weight_path: &str) -> Result<()>;
 }

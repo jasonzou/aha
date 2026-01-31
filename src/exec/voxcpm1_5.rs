@@ -5,20 +5,24 @@
 //! - Input can be text content or a file path (with `file://` prefix)
 //! - Output can be a file path or will be auto-generated if not specified
 
-use crate::exec::ExecModel;
-use crate::models::voxcpm::generate::VoxCPMGenerate;
-use anyhow::{Ok, Result};
 use std::time::Instant;
+
+use anyhow::{Ok, Result};
+
+use crate::models::voxcpm::generate::VoxCPMGenerate;
+use crate::{exec::ExecModel, utils::get_file_path};
 
 pub struct VoxCPM1_5Exec;
 
 impl ExecModel for VoxCPM1_5Exec {
-    fn run(input: &str, output: Option<&str>, weight_path: &str) -> Result<()> {
-        let target_text = if input.starts_with("file://") {
-            let path = &input[7..];
+    fn run(input: &[String], output: Option<&str>, weight_path: &str) -> Result<()> {
+        let input_text = &input[0];
+        let target_text = if input_text.starts_with("file://") {
+            // let path = &input[7..];
+            let path = get_file_path(input_text)?;
             std::fs::read_to_string(path)?
         } else {
-            input.to_string()
+            input_text.clone()
         };
 
         let i_start = Instant::now();
@@ -29,8 +33,8 @@ impl ExecModel for VoxCPM1_5Exec {
         let i_start = Instant::now();
         let audio = voxcpm_generate.inference(
             target_text,
-            Some("啥子小师叔，打狗还要看主人，你再要继续，我就是你的对手".to_string()), //todo args
-            Some("file://./assets/audio/voice_01.wav".to_string()),  //todo args
+            Some("啥子小师叔，打狗还要看主人，你再要继续，我就是你的对手".to_string()), // todo args
+            Some("file://./assets/audio/voice_01.wav".to_string()),                     // todo args
             2,
             4096,
             10,

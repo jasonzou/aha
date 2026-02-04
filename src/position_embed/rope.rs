@@ -340,6 +340,70 @@ impl Qwen3VLTextRotaryEmbedding {
         }
         Ok(freqs_t)
     }
+
+    pub fn apply_interleaved_mrope_asr(
+        &self,
+        freqs: &Tensor,
+        mrope_section: Vec<usize>,
+    ) -> Result<Tensor> {
+        let mut freqs_t = freqs.i(0)?.contiguous()?; //(3, bs, seq_len, head_dim //2) -> (bs, seq_len, head_dim //2)
+
+        // for dim in 1..3 {
+        for (dim, offset) in (1..3).enumerate() {
+            let dim = dim +1;
+            let length = mrope_section[dim];
+            let idx = Tensor::arange_step(offset as u32, length as u32, 3, freqs.device())?;
+            let src = freqs.i(dim)?.contiguous()?; // (bs, seq_len, head_dim //2)
+            let src = src.index_select(&idx, D::Minus1)?.contiguous()?;
+            let idx = idx
+                .unsqueeze(0)?
+                .unsqueeze(0)?
+                .broadcast_as(src.shape())?
+                .contiguous()?;
+            freqs_t = freqs_t.scatter(&idx, &src, D::Minus1)?;
+        }
+        Ok(freqs_t)
+    }
+
+    pub fn forward_asr(
+        &self,
+        position_ids: &Tensor,
+        dtype: DType,
+        mrope_section: Vec<usize>,
+    ) -> Result<(Tensor, Tensor)> {
+        // position_ids shape: (3, bs, position) -> (3, bs, 1, position)
+        let position_ids = if position_ids.rank() == 2 {
+            let (bs, len) = position_ids.dims2()?;
+            position_ids.unsqueeze(0)?.expand((3, bs, len))?
+        } else {
+            position_ids.clone()
+        };
+        let position_ids_expanded = position_ids
+            .unsqueeze(D::Minus2)?
+            .to_dtype(DType::F32)?
+            .contiguous()?;
+        // inv_freq Vec<f32> -> Tensor(1, 1, head_dim / 2, 1) -> (3, bs, head_dim / 2, 1)
+        let inv_freq_expanded = Tensor::from_vec(
+            self.inv_freq.clone(),
+            (1, 1, self.inv_freq.len(), 1),
+            position_ids.device(),
+        )?
+        .broadcast_as((3, position_ids.dim(1)?, self.inv_freq.len(), 1))?
+        .to_dtype(DType::F32)?
+        .contiguous()?;
+
+        // (3, bs, head_dim / 2, 1) matmul (3, bs, 1, position)
+        //    -> (3, bs, head_dim / 2, seq_len) -> (3, bs, seq_len, head_dim / 2)
+        let freqs = inv_freq_expanded
+            .matmul(&position_ids_expanded)?
+            .transpose(2, 3)?;
+        let freqs = self.apply_interleaved_mrope_asr(&freqs, mrope_section)?;
+        let emb = Tensor::cat(&[&freqs, &freqs], D::Minus1)?.contiguous()?;
+        let cos = emb.cos()?;
+        let sin = emb.sin()?;
+        Ok((cos.to_dtype(dtype)?, sin.to_dtype(dtype)?))
+    }
+
     pub fn forward(
         &self,
         position_ids: &Tensor,

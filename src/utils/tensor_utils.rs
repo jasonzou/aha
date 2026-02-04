@@ -105,13 +105,14 @@ pub fn split_tensor_with_size<D: Dim>(
     let dim = dim.to_index(t.shape(), "split")?;
     let mut split_res = Vec::new();
     let dim_size = t.dim(dim)?;
-    assert_eq!(
-        dim_size % splits_size,
-        0,
-        "input tensor dim size % splits_size must be equal to 0"
-    );
-    for split in (0..dim_size).step_by(splits_size) {
-        split_res.push(t.narrow(dim, split, splits_size)?);
+    // assert_eq!(
+    //     dim_size % splits_size,
+    //     0,
+    //     "input tensor dim size % splits_size must be equal to 0"
+    // );
+    for (i, split) in (0..dim_size).step_by(splits_size).enumerate() {
+        let size = splits_size.min(dim_size - i*splits_size);
+        split_res.push(t.narrow(dim, split, size)?);
     }
     Ok(split_res)
 }

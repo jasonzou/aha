@@ -10,7 +10,7 @@ use crate::{
     utils::{
         audio_utils::{
             create_hann_window, extract_audio_url, get_waveform_and_window_properties, kaldi_fbank,
-            kaldi_get_mel_banks, load_audio, mel_filter_bank, resample_simple, spectrogram,
+            kaldi_get_mel_banks, load_audio, mel_filter_bank, resample_simple, 
             torch_stft,
         },
         get_vb_model_path,

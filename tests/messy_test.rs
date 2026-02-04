@@ -2,9 +2,9 @@
 
 use std::time::Instant;
 
-use aha::utils::{audio_utils::create_hann_window, tensor_utils::interpolate_nearest_1d};
+use aha::utils::{tensor_utils::interpolate_nearest_1d};
 use anyhow::Result;
-use candle_core::{DType, Tensor};
+use candle_core::{Tensor};
 // use symphonia::core::io::MediaSourceStream;
 
 #[test]

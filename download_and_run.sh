@@ -17,7 +17,9 @@ show_help() {
     echo "  minicpm4-0.5b"
     echo "  qwen2.5vl-3b"
     echo "  qwen2.5vl-7b" 
-    echo "  qwen3-0.6b"
+    echo "  qwen3-0.6b" 
+    echo "  qwen3asr-0.6b"
+    echo "  qwen3asr-1.7b"
     echo "  qwen3vl-2b"
     echo "  qwen3vl-4b"
     echo "  qwen3vl-8b"
@@ -55,6 +57,12 @@ case $MODEL_ALIAS in
         ;;
     "qwen3-0.6b")
         MODEL_ID="Qwen/Qwen3-0.6B"
+        ;;
+    "qwen3asr-0.6b")
+        MODEL_ID="Qwen/Qwen3-ASR-0.6B"
+        ;;
+    "qwen3asr-1.7b")
+        MODEL_ID="Qwen/Qwen3-ASR-1.7B"
         ;;
     "qwen3vl-2b")
         MODEL_ID="Qwen/Qwen3-VL-2B-Instruct"

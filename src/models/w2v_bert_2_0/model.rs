@@ -8,7 +8,7 @@ use candle_nn::{
 use crate::{
     models::{
         common::{
-            GLU, NaiveAttention, TwoLinearMLP, eager_attention_forward, get_conv1d, get_layer_norm,
+            GLU, TwoLinearMLP, eager_attention_forward, get_conv1d, get_layer_norm,
         },
         w2v_bert_2_0::config::W2VBert2_0Config,
     },

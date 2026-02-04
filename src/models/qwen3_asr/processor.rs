@@ -1,12 +1,17 @@
 use aha_openai_dive::v1::resources::chat::ChatCompletionParameters;
 use anyhow::Result;
 use candle_core::{Device, Tensor};
-use serde_json::{Value, json};
 
-use crate::utils::{
-    audio_utils::{extract_audios, split_audio_into_chunks},
-    capitalize_first_letter, extract_user_text_vec,
-    tensor_utils::float_range_normalize,
+use crate::{
+    models::feature_extractor::{
+        config::FeatureExtractor, feature_extraction_whisper::WhisperFeatureExtractor,
+    },
+    tokenizer::TokenizerModel,
+    utils::{
+        audio_utils::{extract_audios, split_audio_into_chunks},
+        capitalize_first_letter,
+        tensor_utils::float_range_normalize,
+    },
 };
 
 pub struct Qwen3AsrProcessor {
@@ -14,10 +19,12 @@ pub struct Qwen3AsrProcessor {
     sample_rate: usize,
     support_language: Vec<String>,
     max_asr_input_seconds: f32,
+    whisper_feature_extracor: WhisperFeatureExtractor,
+    audio_token: String,
 }
 
 impl Qwen3AsrProcessor {
-    pub fn new(device: &Device) -> Result<Self> {
+    pub fn new(device: &Device, config: &FeatureExtractor) -> Result<Self> {
         let support_language: Vec<String> = vec![
             "Chinese",
             "English",
@@ -53,11 +60,23 @@ impl Qwen3AsrProcessor {
         .iter()
         .map(|s| s.to_string())
         .collect();
+        let whisper_feature_extracor = WhisperFeatureExtractor::new(
+            config.feature_size,
+            config.hop_length,
+            // config.chunk_length,
+            config.n_fft,
+            config.dither,
+            // config.padding_value,
+            config.sampling_rate,
+            device,
+        )?;
         Ok(Self {
             device: device.clone(),
             sample_rate: 16000,
             support_language,
             max_asr_input_seconds: 1200.0,
+            whisper_feature_extracor,
+            audio_token: "<|audio_pad|>".to_string(),
         })
     }
 
@@ -73,7 +92,19 @@ impl Qwen3AsrProcessor {
         self.support_language.contains(lang)
     }
 
-    pub fn process_info(&self, mes: &ChatCompletionParameters, render: &str) -> Result<()> {
+    fn replace_special_tokens(&self, text: &str, token_len: usize) -> String {
+        let replace = "<|audio_placeholder|>".repeat(token_len as usize);
+        let text = text.replacen(&self.audio_token, &replace, 1);
+        let text = text.replace("<|audio_placeholder|>", &self.audio_token);
+        text
+    }
+
+    pub fn process_info(
+        &self,
+        mes: &ChatCompletionParameters,
+        render: &str,
+        tokenizer: &TokenizerModel,
+    ) -> Result<Vec<AudioData>> {
         let audio_count = render
             .matches("<|audio_start|><|audio_pad|><|audio_end|>")
             .count();
@@ -104,24 +135,38 @@ impl Qwen3AsrProcessor {
             let wavs = split_audio_into_chunks(wav, self.sample_rate, self.max_asr_input_seconds)?;
             split_wavs.extend_from_slice(&wavs);
         }
-        
-
-        // let mut audio_datas = vec![];
-        // for (i, wav) in audio_tensors.iter().enumerate() {
-        //     let wavs = split_audio_into_chunks(wav, self.sample_rate, self.max_asr_input_seconds)?;
-        //     for i_w in wavs {
-        //         let audio_data = AudioData {
-        //             wav: i_w,
-        //             language: langs[i].clone(),
-        //         };
-        //         audio_datas.push(audio_data);
-        //     }
-        // }
-        Ok(())
+        let mut audio_datas = vec![];
+        for wav in split_wavs.iter() {
+            let (input_features, _) =
+                self.whisper_feature_extracor
+                    .call(wav, self.sample_rate, false)?;
+            let audio_len = input_features.dim(2)?;
+            let output_len = get_feat_extract_output_lengths(audio_len);
+            let text = self.replace_special_tokens(&render, output_len);
+            let input_ids = tokenizer.text_encode(text, &self.device)?;
+            let input_features = input_features.squeeze(0)?;
+            let audio = AudioData {
+                input_features,
+                input_ids,
+            };
+            audio_datas.push(audio);
+        }
+        Ok(audio_datas)
     }
 }
 
 pub struct AudioData {
-    pub wav: Tensor,
-    pub language: Option<String>,
+    pub input_features: Tensor,
+    pub input_ids: Tensor,
+}
+
+pub fn get_feat_extract_output_lengths(audio_len: usize) -> usize {
+    let input_len_leave = audio_len % 100;
+    let output_len = if input_len_leave > 0 {
+        let feat_lengths = (input_len_leave - 1) / 2 + 1;
+        ((feat_lengths - 1) / 2 + 1 - 1) / 2 + 1 + (audio_len / 100) * 13
+    } else {
+        (audio_len / 100) * 13
+    };
+    output_len
 }

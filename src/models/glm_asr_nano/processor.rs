@@ -1,4 +1,3 @@
-use std::f32;
 
 use aha_openai_dive::v1::resources::chat::ChatCompletionParameters;
 use anyhow::Result;
@@ -9,22 +8,16 @@ use crate::{
         feature_extractor::feature_extraction_whisper::WhisperFeatureExtractor,
         glm_asr_nano::config::GlmAsrNanoProcessorConfig,
     },
-    utils::{
-        audio_utils::{
-            apply_stft, create_hann_window, extract_audios, extract_frames, mel_filter_bank,
-            torch_stft,
-        },
-        tensor_utils::{log10, pad_reflect_last_dim, split_tensor},
-    },
+    utils::{audio_utils::extract_audios, tensor_utils::split_tensor},
 };
 
 pub struct GlmAsrNanoProcessor {
     sampling_rate: usize,
     chunk_length: usize,
     n_samples: usize,
-    n_fft: usize,
-    window: Tensor,
-    mel_filters: Tensor,
+    // n_fft: usize,
+    // window: Tensor,
+    // mel_filters: Tensor,
     hop_length: usize,
     audio_token: String,
     // audio_token_id: u32,
@@ -55,29 +48,29 @@ impl GlmAsrNanoProcessor {
         let sampling_rate = processor_cfg.feature_extractor.sampling_rate;
         let chunk_length = processor_cfg.feature_extractor.chunk_length;
         let n_samples = processor_cfg.feature_extractor.n_samples;
-        let n_fft = processor_cfg.feature_extractor.n_fft;
+        // let n_fft = processor_cfg.feature_extractor.n_fft;
         let hop_length = processor_cfg.feature_extractor.hop_length;
-        let window = create_hann_window(n_fft, dtype, device)?;
-        let window = window.unsqueeze(0)?.unsqueeze(0)?;
-        let mel_filters = mel_filter_bank(
-            1 + n_fft / 2,
-            processor_cfg.feature_extractor.feature_size,
-            0.0,
-            8000.0,
-            sampling_rate as f32,
-            Some("slaney"),
-            crate::utils::audio_utils::MelScale::Slaney,
-            false,
-            device,
-        )?
-        .t()?;
+        // let window = create_hann_window(n_fft, dtype, device)?;
+        // let window = window.unsqueeze(0)?.unsqueeze(0)?;
+        // let mel_filters = mel_filter_bank(
+        //     1 + n_fft / 2,
+        //     processor_cfg.feature_extractor.feature_size,
+        //     0.0,
+        //     8000.0,
+        //     sampling_rate as f32,
+        //     Some("slaney"),
+        //     crate::utils::audio_utils::MelScale::Slaney,
+        //     false,
+        //     device,
+        // )?
+        // .t()?;
         let whisper_feature_extrator = WhisperFeatureExtractor::new(
             processor_cfg.feature_extractor.feature_size,
             processor_cfg.feature_extractor.hop_length,
-            processor_cfg.feature_extractor.chunk_length,
+            // processor_cfg.feature_extractor.chunk_length,
             processor_cfg.feature_extractor.n_fft,
             processor_cfg.feature_extractor.dither,
-            processor_cfg.feature_extractor.padding_value,
+            // processor_cfg.feature_extractor.padding_value,
             processor_cfg.feature_extractor.sampling_rate,
             device,
         )?;
@@ -85,9 +78,9 @@ impl GlmAsrNanoProcessor {
             sampling_rate,
             chunk_length,
             n_samples,
-            n_fft,
-            window,
-            mel_filters,
+            // n_fft,
+            // window,
+            // mel_filters,
             hop_length,
             audio_token,
             // audio_token_id,

@@ -19,7 +19,7 @@ use anyhow::{Result, anyhow};
 use byteorder::{LittleEndian, ReadBytesExt};
 use candle_core::{
     Context, DType, Device, Shape, Tensor,
-    pickle::{Object, PthTensors, Stack, TensorInfo, read_all_with_key},
+    pickle::{Object, Stack, TensorInfo, read_all_with_key},
 };
 use candle_nn::VarBuilder;
 use candle_transformers::generation::{LogitsProcessor, Sampling};

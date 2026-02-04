@@ -7,13 +7,13 @@ use crate::utils::{
 };
 
 pub struct WhisperFeatureExtractor {
-    feature_size: usize,
+    // feature_size: usize,
     hop_length: usize,
-    chunk_length: usize,
-    n_samples: usize,
+    // chunk_length: usize,
+    // n_samples: usize,
     n_fft: usize,
     dither: f64,
-    padding_value: f32,
+    // padding_value: f32,
     sampling_rate: usize,
     mel_filters: Tensor,
     window: Tensor,
@@ -23,10 +23,10 @@ impl WhisperFeatureExtractor {
     pub fn new(
         feature_size: usize,
         hop_length: usize,
-        chunk_length: usize,
+        // chunk_length: usize,
         n_fft: usize,
         dither: f64,
-        padding_value: f32,
+        // padding_value: f32,
         sampling_rate: usize,
         device: &Device,
     ) -> Result<Self> {
@@ -44,15 +44,15 @@ impl WhisperFeatureExtractor {
             device,
         )?
         .t()?;
-        let n_samples = chunk_length * sampling_rate;
+        // let n_samples = chunk_length * sampling_rate;
         Ok(Self {
-            feature_size,
+            // feature_size,
             hop_length,
-            chunk_length,
-            n_samples,
+            // chunk_length,
+            // n_samples,
             n_fft,
             dither,
-            padding_value,
+            // padding_value,
             sampling_rate,
             mel_filters,
             window,

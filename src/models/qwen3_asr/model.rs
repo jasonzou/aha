@@ -1,646 +1,388 @@
 use anyhow::Result;
-use candle_core::{D, IndexOp, Tensor};
-use candle_nn::{Conv1d, LayerNorm, Linear, Module, VarBuilder, linear, ops::softmax_last_dim};
+use candle_core::Tensor;
+use candle_nn::{
+    Activation, Conv2d, Embedding, LayerNorm, Linear, Module, RmsNorm, VarBuilder, embedding,
+    linear, linear_no_bias, rms_norm,
+};
 
 use crate::{
     models::{
-        common::{
-            NaiveAttention, TwoLinearMLP, eager_attention_forward, get_conv1d, get_layer_norm,
+        common::{NaiveAttention, get_conv2d, get_layer_norm},
+        qwen3::model::Qwen3DecoderLayer,
+        qwen3_asr::{
+            config::{
+                Qwen3ASRAudioConfig, Qwen3ASRConfig, Qwen3ASRTextConfig, ThinkerConfig,
+                qwen3asr_text_config2qwen3_config,
+            },
+            processor::get_feat_extract_output_lengths,
         },
-        fun_asr_nano::config::FunASRNanoConfig,
-        qwen3::{config::Qwen3Config, model::Qwen3Model},
     },
-    position_embed::sinusoidal_pe::SinusoidalPositionEncoderCat,
-    utils::tensor_utils::{get_equal_mask, attn_masked_fill, masked_scatter_dim0},
+    position_embed::{
+        rope::Qwen3VLTextRotaryEmbedding, sinusoidal_pe::SinusoidalPositionEncoderCat,
+    },
+    utils::tensor_utils::{
+        get_equal_mask, masked_scatter_dim0, prepare_causal_attention_mask, split_tensor,
+        split_tensor_with_size,
+    },
 };
 
-pub struct MultiHeadedAttentionSANM {
-    head_dim: usize,
-    n_head: usize,
-    linear_out: Linear,
-    linear_q_k_v: Linear,
-    fsmn_block: Conv1d,
-    left_padding: usize,
-    right_padding: usize,
-    scaling: f64,
-}
-
-impl MultiHeadedAttentionSANM {
-    pub fn new(
-        vb: VarBuilder,
-        n_head: usize,
-        in_dim: usize,
-        hidden_dim: usize,
-        kernel_size: usize,
-        sanm_shfit: usize,
-    ) -> Result<Self> {
-        let head_dim = hidden_dim / n_head;
-        let linear_out = linear(hidden_dim, hidden_dim, vb.pp("linear_out"))?;
-        let linear_q_k_v = linear(in_dim, hidden_dim * 3, vb.pp("linear_q_k_v"))?;
-        let fsmn_block = get_conv1d(
-            vb.pp("fsmn_block"),
-            hidden_dim,
-            hidden_dim,
-            kernel_size,
-            0,
-            1,
-            1,
-            hidden_dim,
-            false,
-        )?;
-        let mut left_padding = (kernel_size - 1) / 2;
-        if sanm_shfit > 0 {
-            left_padding += sanm_shfit;
-        }
-        let right_padding = kernel_size - 1 - left_padding;
-        let scaling = (head_dim as f64).powf(-0.5);
-        Ok(Self {
-            head_dim,
-            n_head,
-            linear_out,
-            linear_q_k_v,
-            fsmn_block,
-            left_padding,
-            right_padding,
-            scaling,
-        })
-    }
-
-    pub fn forward_fsmn(
-        &self,
-        inputs: &Tensor,
-        mask: Option<&Tensor>,
-        mask_shfit_chunk: Option<&Tensor>,
-    ) -> Result<Tensor> {
-        let mut inputs = inputs.clone();
-        let mask = if let Some(mask) = mask {
-            let mut mask = mask.unsqueeze(D::Minus1)?.unsqueeze(0)?;
-            if let Some(mask_shfit_chunk) = mask_shfit_chunk {
-                mask = mask.broadcast_mul(mask_shfit_chunk)?;
-            }
-            inputs = inputs.broadcast_mul(&mask)?;
-            Some(mask)
-        } else {
-            None
-        };
-        let xs = inputs.transpose(1, 2)?;
-        let xs = xs.pad_with_zeros(D::Minus1, self.left_padding, self.right_padding)?;
-        let xs = self.fsmn_block.forward(&xs)?;
-        let xs = xs.transpose(1, 2)?;
-        let mut xs = xs.add(&inputs)?;
-        if let Some(mask) = mask {
-            xs = xs.broadcast_mul(&mask)?;
-        }
-        Ok(xs)
-    }
-    pub fn forward_qkv(&self, xs: &Tensor) -> Result<(Tensor, Tensor, Tensor, Tensor)> {
-        let (b, t, _) = xs.dims3()?;
-        let q_k_v = self
-            .linear_q_k_v
-            .forward(xs)?
-            .reshape((b, t, 3, self.n_head, ()))?
-            .permute((2, 0, 3, 1, 4))?
-            .contiguous()?;
-        let q_h = q_k_v.i(0)?.contiguous()?;
-        let k_h = q_k_v.i(1)?.contiguous()?;
-        let v_h = q_k_v.i(2)?.contiguous()?;
-        let v = v_h.transpose(1, 2)?.reshape((b, t, ()))?;
-        Ok((q_h, k_h, v_h, v))
-    }
-
-    pub fn forward_attention(
-        &self,
-        values: &Tensor,
-        scores: &Tensor,
-        mask: Option<&Tensor>,
-        mask_att_chunk_encoder: Option<&Tensor>,
-    ) -> Result<Tensor> {
-        let bs = scores.dim(0)?;
-        let attn = if let Some(mask) = mask {
-            let mask = if let Some(mask_att_chunk_encoder) = mask_att_chunk_encoder {
-                mask.mul(mask_att_chunk_encoder)?
-            } else {
-                mask.clone()
-            };
-            // mask: rank = 2
-            let mask = get_equal_mask(&mask, 0)?;
-            let scores = attn_masked_fill(scores, &mask, f32::NEG_INFINITY)?;
-            let attn = softmax_last_dim(&scores)?;
-            attn_masked_fill(&attn, &mask, 0.0)?
-        } else {
-            softmax_last_dim(scores)?
-        };
-        let xs = attn.matmul(values)?;
-        let xs =
-            xs.transpose(1, 2)?
-                .contiguous()?
-                .reshape((bs, (), self.n_head * self.head_dim))?;
-        let xs = self.linear_out.forward(&xs)?;
-        Ok(xs)
-    }
-
-    pub fn forward_simple(&self, xs: &Tensor) -> Result<Tensor> {
-        let (b, t, _) = xs.dims3()?;
-        let q_k_v = self.linear_q_k_v.forward(xs)?;
-        let dim = self.head_dim * self.n_head;
-        let q_h = q_k_v
-            .narrow(D::Minus1, 0, dim)?
-            .reshape((b, t, self.n_head, ()))?
-            .permute((0, 2, 1, 3))?;
-        let k_h = q_k_v
-            .narrow(D::Minus1, dim, dim)?
-            .reshape((b, t, self.n_head, ()))?
-            .permute((0, 2, 1, 3))?;
-        let v = q_k_v.narrow(D::Minus1, dim * 2, dim)?;
-        let v_h = v.reshape((b, t, self.n_head, ()))?.permute((0, 2, 1, 3))?;
-        let fsmn_memory = v.transpose(1, 2)?;
-        let fsmn_memory = fsmn_memory
-            .pad_with_zeros(D::Minus1, self.left_padding, self.right_padding)?
-            .contiguous()?;
-        let fsmn_memory = self.fsmn_block.forward(&fsmn_memory)?;
-        // let fsmn_memory = conv1d_group_parallel(&fsmn_memory, &self.fsmn_block)?;
-
-        let fsmn_memory = fsmn_memory.transpose(1, 2)?;
-        let fsmn_memory = fsmn_memory.add(&v)?;
-        let att_outs = eager_attention_forward(&q_h, &k_h, &v_h, None, None, self.scaling)?;
-        let att_outs = att_outs.reshape((b, t, ()))?;
-        let att_outs = self.linear_out.forward(&att_outs)?;
-        let att_outs = att_outs.add(&fsmn_memory)?;
-        Ok(att_outs)
-    }
-
-    pub fn forward(
-        &self,
-        xs: &Tensor,
-        mask: Option<&Tensor>,
-        mask_shfit_chunk: Option<&Tensor>,
-        mask_att_chunk_encoder: Option<&Tensor>,
-    ) -> Result<Tensor> {
-        let (q_h, k_h, v_h, v) = self.forward_qkv(xs)?;
-        let fsmn_memory = self.forward_fsmn(&v, mask, mask_shfit_chunk)?;
-        let q_h = q_h.affine(self.scaling, 0.0)?;
-        let scores = q_h.matmul(&k_h.transpose(D::Minus2, D::Minus1)?)?;
-        let attn_outs = self.forward_attention(&v_h, &scores, mask, mask_att_chunk_encoder)?;
-        let att_outs = attn_outs.add(&fsmn_memory)?;
-        Ok(att_outs)
-    }
-}
-
-pub struct EncoderLayerSANM {
-    self_attn: MultiHeadedAttentionSANM,
-    feed_forward: TwoLinearMLP,
-    norm1: LayerNorm,
-    norm2: LayerNorm,
-    concat_linear: Option<Linear>,
-    normalize_before: bool,
-    in_dim: usize,
-    hidden_dim: usize,
-}
-
-impl EncoderLayerSANM {
-    pub fn new(
-        vb: VarBuilder,
-        in_dim: usize,
-        hidden_dim: usize,
-        n_head: usize,
-        kernel_size: usize,
-        sanm_shfit: usize,
-        hidden_units: usize,
-        normalize_before: bool,
-        concat_after: bool,
-    ) -> Result<Self> {
-        let self_attn = MultiHeadedAttentionSANM::new(
-            vb.pp("self_attn"),
-            n_head,
-            in_dim,
-            hidden_dim,
-            kernel_size,
-            sanm_shfit,
-        )?;
-        let feed_forward = TwoLinearMLP::new(
-            vb.pp("feed_forward"),
-            hidden_dim,
-            hidden_units,
-            hidden_dim,
-            candle_nn::Activation::Relu,
-            true,
-            "w_1",
-            "w_2",
-        )?;
-        let norm1 = get_layer_norm(vb.pp("norm1"), 1e-5, in_dim)?;
-        let norm2 = get_layer_norm(vb.pp("norm2"), 1e-5, hidden_dim)?;
-        let concat_linear = if concat_after {
-            let lin = linear(hidden_dim * 2, hidden_dim, vb.pp("concat_linear"))?;
-            Some(lin)
-        } else {
-            None
-        };
-        Ok(Self {
-            self_attn,
-            feed_forward,
-            norm1,
-            norm2,
-            concat_linear,
-            normalize_before,
-            in_dim,
-            hidden_dim,
-        })
-    }
-
-    pub fn forward(
-        &self,
-        xs: &Tensor,
-        mask: Option<&Tensor>,
-        mask_shfit_chunk: Option<&Tensor>,
-        mask_att_chunk_encoder: Option<&Tensor>,
-    ) -> Result<Tensor> {
-        let stoch_layer_coeff = 1.0f64;
-        let residual = xs.clone();
-        let mut xs = if self.normalize_before {
-            self.norm1.forward(xs)?
-        } else {
-            xs.clone()
-        };
-        if self.concat_linear.is_some() {
-            let attn =
-                self.self_attn
-                    .forward(&xs, mask, mask_shfit_chunk, mask_att_chunk_encoder)?;
-            let x_concat = Tensor::cat(&[&xs, &attn], D::Minus1)?;
-            if self.in_dim == self.hidden_dim {
-                let x_concat = self
-                    .concat_linear
-                    .as_ref()
-                    .unwrap()
-                    .forward(&x_concat)?
-                    .affine(stoch_layer_coeff, 0.0)?;
-                xs = residual.add(&x_concat)?;
-            } else {
-                xs = self
-                    .concat_linear
-                    .as_ref()
-                    .unwrap()
-                    .forward(&x_concat)?
-                    .affine(stoch_layer_coeff, 0.0)?;
-            }
-        } else if self.in_dim == self.hidden_dim {
-            let attn = self
-                .self_attn
-                .forward(&xs, mask, mask_shfit_chunk, mask_att_chunk_encoder)?
-                .affine(stoch_layer_coeff, 0.0)?;
-            xs = residual.add(&attn)?;
-        } else {
-            xs = self
-                .self_attn
-                .forward(&xs, mask, mask_shfit_chunk, mask_att_chunk_encoder)?
-                .affine(stoch_layer_coeff, 0.0)?;
-        }
-
-        if !self.normalize_before {
-            xs = self.norm1.forward(&xs)?;
-        }
-        let residual = xs.clone();
-        if self.normalize_before {
-            xs = self.norm2.forward(&xs)?;
-        }
-        xs = self
-            .feed_forward
-            .forward(&xs)?
-            .affine(stoch_layer_coeff, 0.0)?;
-        xs = residual.add(&xs)?;
-        if !self.normalize_before {
-            xs = self.norm2.forward(&xs)?;
-        }
-        Ok(xs)
-    }
-
-    pub fn forward_simple(&self, xs: &Tensor) -> Result<Tensor> {
-        let residual = xs.clone();
-        let mut xs = self.norm1.forward(xs)?;
-        if self.in_dim == self.hidden_dim {
-            let attn = self.self_attn.forward_simple(&xs)?;
-            xs = residual.add(&attn)?;
-        } else {
-            xs = self.self_attn.forward_simple(&xs)?;
-        }
-
-        let residual = xs.clone();
-        let xs = self.norm2.forward(&xs)?;
-
-        let xs = self.feed_forward.forward(&xs)?;
-        let xs = residual.add(&xs)?;
-        Ok(xs)
-    }
-}
-
-pub struct SenseVoiceEncoderSmall {
-    embed: SinusoidalPositionEncoderCat,
-    encoders0: EncoderLayerSANM,
-    encoders: Vec<EncoderLayerSANM>,
-    tp_encoders: Vec<EncoderLayerSANM>,
-    after_norm: LayerNorm,
-    tp_norm: LayerNorm,
-    scaling: f64,
-}
-
-impl SenseVoiceEncoderSmall {
-    pub fn new(
-        vb: VarBuilder,
-        input_size: usize,
-        output_size: usize,
-        attention_heads: usize,
-        linear_units: usize,
-        num_blocks: usize,
-        tp_blocks: usize,
-        normalize_before: bool,
-        kernel_size: usize,
-        sanm_shfit: usize,
-    ) -> Result<Self> {
-        let embed = SinusoidalPositionEncoderCat::new(Some(input_size), true, vb.device())?;
-
-        let encoders0 = EncoderLayerSANM::new(
-            vb.pp("encoders0.0"),
-            input_size,
-            output_size,
-            attention_heads,
-            kernel_size,
-            sanm_shfit,
-            linear_units,
-            normalize_before,
-            false,
-        )?;
-        let mut encoders = vec![];
-        let vb_encoders = vb.pp("encoders");
-        for i in 0..(num_blocks - 1) {
-            let encoder_i = EncoderLayerSANM::new(
-                vb_encoders.pp(i),
-                output_size,
-                output_size,
-                attention_heads,
-                kernel_size,
-                sanm_shfit,
-                linear_units,
-                normalize_before,
-                false,
-            )?;
-            encoders.push(encoder_i);
-        }
-        let vb_tp_encoders = vb.pp("tp_encoders");
-        let mut tp_encoders = vec![];
-        for i in 0..tp_blocks {
-            let tp_blocks_i = EncoderLayerSANM::new(
-                vb_tp_encoders.pp(i),
-                output_size,
-                output_size,
-                attention_heads,
-                kernel_size,
-                sanm_shfit,
-                linear_units,
-                normalize_before,
-                false,
-            )?;
-            tp_encoders.push(tp_blocks_i);
-        }
-        let after_norm = get_layer_norm(vb.pp("after_norm"), 1e-5, output_size)?;
-        let tp_norm = get_layer_norm(vb.pp("tp_norm"), 1e-5, output_size)?;
-        let scaling = (output_size as f64).powf(0.5);
-        Ok(Self {
-            embed,
-            encoders0,
-            encoders,
-            tp_encoders,
-            after_norm,
-            tp_norm,
-            scaling,
-        })
-    }
-    pub fn forward(&self, xs: &Tensor) -> Result<Tensor> {
-        let xs = xs.affine(self.scaling, 0.0)?;
-        let xs = self.embed.forward(&xs, 0)?;
-        let mut xs = self.encoders0.forward_simple(&xs)?;
-        for encoder_layer in &self.encoders {
-            xs = encoder_layer.forward_simple(&xs)?;
-        }
-        xs = self.after_norm.forward(&xs)?;
-        for tp_layer in &self.tp_encoders {
-            xs = tp_layer.forward_simple(&xs)?;
-        }
-        xs = self.tp_norm.forward(&xs)?;
-        Ok(xs)
-    }
-}
-
-pub struct AdaptorEncoderLayer {
+pub struct Qwen3ASRAudioEncoderLayer {
     self_attn: NaiveAttention,
-    feed_forward: TwoLinearMLP,
-    norm1: LayerNorm,
-    norm2: LayerNorm,
-    concat_linear: Option<Linear>,
-    normalize_before: bool,
+    self_attn_layer_norm: LayerNorm,
+    activation_fn: Activation,
+    fc1: Linear,
+    fc2: Linear,
+    final_layer_norm: LayerNorm,
 }
 
-impl AdaptorEncoderLayer {
-    pub fn new(
-        vb: VarBuilder,
-        llm_dim: usize,
-        n_head: usize,
-        normalize_before: bool,
-        concat_after: bool,
-    ) -> Result<Self> {
+impl Qwen3ASRAudioEncoderLayer {
+    pub fn new(vb: VarBuilder, config: &Qwen3ASRAudioConfig) -> Result<Self> {
         let self_attn = NaiveAttention::new(
             vb.pp("self_attn"),
-            llm_dim,
-            n_head,
-            n_head,
+            config.d_model,
+            config.encoder_attention_heads,
+            config.encoder_attention_heads,
             None,
             true,
-            Some("linear_q"),
-            Some("linear_k"),
-            Some("linear_v"),
-            Some("linear_out"),
+            Some("q_proj"),
+            Some("k_proj"),
+            Some("v_proj"),
+            Some("out_proj"),
         )?;
-        let feed_forward = TwoLinearMLP::new(
-            vb.pp("feed_forward"),
-            llm_dim,
-            llm_dim / 4,
-            llm_dim,
-            candle_nn::Activation::Relu,
-            true,
-            "w_1",
-            "w_2",
-        )?;
-        let norm1 = get_layer_norm(vb.pp("norm1"), 1e-5, llm_dim)?;
-        let norm2 = get_layer_norm(vb.pp("norm2"), 1e-5, llm_dim)?;
-        let concat_linear = if concat_after {
-            let lin = linear(llm_dim * 2, llm_dim, vb.pp("concat_linear"))?;
-            Some(lin)
-        } else {
-            None
-        };
+        let self_attn_layer_norm =
+            get_layer_norm(vb.pp("self_attn_layer_norm"), 1e-5, config.d_model)?;
+        let activation_fn = config.activation_function;
+        let fc1 = linear(config.d_model, config.encoder_ffn_dim, vb.pp("fc1"))?;
+        let fc2 = linear(config.encoder_ffn_dim, config.d_model, vb.pp("fc2"))?;
+        let final_layer_norm = get_layer_norm(vb.pp("final_layer_norm"), 1e-5, config.d_model)?;
         Ok(Self {
             self_attn,
-            feed_forward,
-            norm1,
-            norm2,
-            concat_linear,
-            normalize_before,
+            self_attn_layer_norm,
+            activation_fn,
+            fc1,
+            fc2,
+            final_layer_norm,
         })
     }
 
     pub fn forward(&self, xs: &Tensor, mask: Option<&Tensor>) -> Result<Tensor> {
-        let stoch_layer_coeff = 1.0f64;
         let residual = xs.clone();
-        let mut xs = if self.normalize_before {
-            self.norm1.forward(xs)?
-        } else {
-            xs.clone()
-        };
-        if self.concat_linear.is_some() {
-            let attn = self.self_attn.forward(&xs, None, None, mask, false)?;
-            let x_concat = Tensor::cat(&[&xs, &attn], D::Minus1)?;
-            let x_concat = self
-                .concat_linear
-                .as_ref()
-                .unwrap()
-                .forward(&x_concat)?
-                .affine(stoch_layer_coeff, 0.0)?;
-            xs = residual.add(&x_concat)?;
-        } else {
-            let attn = self
-                .self_attn
-                .forward(&xs, None, None, mask, false)?
-                .affine(stoch_layer_coeff, 0.0)?;
-            xs = residual.add(&attn)?;
-        }
-        if !self.normalize_before {
-            xs = self.norm1.forward(&xs)?;
-        }
-        let residual = xs.clone();
-        if self.normalize_before {
-            xs = self.norm2.forward(&xs)?;
-        }
-        xs = self
-            .feed_forward
-            .forward(&xs)?
-            .affine(stoch_layer_coeff, 0.0)?;
-        xs = residual.add(&xs)?;
-        if !self.normalize_before {
-            xs = self.norm2.forward(&xs)?;
-        }
+        let xs = self.self_attn_layer_norm.forward(xs)?;
+        let xs = self.self_attn.forward(&xs, None, None, mask, false)?;
+        let residual = xs.add(&residual)?;
+        let xs = self.final_layer_norm.forward(&residual)?;
+        let xs = self.fc1.forward(&xs)?.apply(&self.activation_fn)?;
+        let xs = self.fc2.forward(&xs)?;
+        let xs = xs.add(&residual)?;
         Ok(xs)
     }
 }
 
-pub struct AudioAdaptor {
-    k: usize,
-    linear1: Linear,
-    linear2: Linear,
-    blocks: Vec<AdaptorEncoderLayer>,
+pub struct Qwen3ASRAudioEncoder {
+    n_window: usize,
+    positional_embedding: SinusoidalPositionEncoderCat,
+    layers: Vec<Qwen3ASRAudioEncoderLayer>,
+    ln_post: LayerNorm,
+    conv2d1: Conv2d,
+    conv2d2: Conv2d,
+    conv2d3: Conv2d,
+    conv_out: Linear,
+    proj1: Linear,
+    act: Activation,
+    proj2: Linear,
+    // n_window_infer: usize,
+    conv_chunksize: usize,
 }
 
-impl AudioAdaptor {
-    pub fn new(
-        vb: VarBuilder,
-        downsample_rate: usize,
-        encoder_dim: usize,
-        llm_dim: usize,
-        ffn_dim: usize,
-        n_layer: usize,
-        attention_heads: usize,
-    ) -> Result<Self> {
-        let linear1 = linear(encoder_dim * downsample_rate, ffn_dim, vb.pp("linear1"))?;
-        let linear2 = linear(ffn_dim, llm_dim, vb.pp("linear2"))?;
-        let mut blocks = vec![];
-        let vb_blocks = vb.pp("blocks");
-        for i in 0..n_layer {
-            let layer =
-                AdaptorEncoderLayer::new(vb_blocks.pp(i), llm_dim, attention_heads, true, false)?;
-            blocks.push(layer);
+impl Qwen3ASRAudioEncoder {
+    pub fn new(vb: VarBuilder, config: &Qwen3ASRAudioConfig) -> Result<Self> {
+        let n_window = config.n_window;
+        let positional_embedding =
+            SinusoidalPositionEncoderCat::new(Some(config.d_model), true, vb.device())?;
+        let mut layers = vec![];
+        let vb_layers = vb.pp("layers");
+        for i in 0..config.encoder_layers {
+            let layer = Qwen3ASRAudioEncoderLayer::new(vb_layers.pp(i), config)?;
+            layers.push(layer);
         }
+        let ln_post = get_layer_norm(vb.pp("ln_post"), 1e-5, config.d_model)?;
+        let conv2d1 = get_conv2d(
+            vb.pp("conv2d1"),
+            1,
+            config.downsample_hidden_size,
+            3,
+            1,
+            2,
+            1,
+            1,
+            true,
+        )?;
+        let conv2d2 = get_conv2d(
+            vb.pp("conv2d2"),
+            config.downsample_hidden_size,
+            config.downsample_hidden_size,
+            3,
+            1,
+            2,
+            1,
+            1,
+            true,
+        )?;
+        let conv2d3 = get_conv2d(
+            vb.pp("conv2d3"),
+            config.downsample_hidden_size,
+            config.downsample_hidden_size,
+            3,
+            1,
+            2,
+            1,
+            1,
+            true,
+        )?;
+        let in_dim =
+            config.downsample_hidden_size * ((((config.num_mel_bins + 1) / 2 + 1) / 2 + 1) / 2);
+        let conv_out = linear_no_bias(in_dim, config.d_model, vb.pp("conv_out"))?;
+        let proj1 = linear(config.d_model, config.d_model, vb.pp("proj1"))?;
+        let act = config.activation_function;
+        let proj2 = linear(config.d_model, config.output_dim, vb.pp("proj2"))?;
+        // let n_window_infer = config.n_window_infer;
+        let conv_chunksize = config.conv_chunksize;
         Ok(Self {
-            k: downsample_rate,
-            linear1,
-            linear2,
-            blocks,
+            n_window,
+            positional_embedding,
+            layers,
+            ln_post,
+            conv2d1,
+            conv2d2,
+            conv2d3,
+            conv_out,
+            proj1,
+            act,
+            proj2,
+            // n_window_infer,
+            conv_chunksize,
         })
     }
+
     pub fn forward(&self, xs: &Tensor) -> Result<Tensor> {
-        let (bs, seq_len, dim) = xs.dims3()?;
-        let chunk_num = (seq_len - 1) / self.k + 1;
-        let pad_num = chunk_num * self.k - seq_len;
-        let xs = xs.pad_with_zeros(1, 0, pad_num)?;
-        let xs = xs.contiguous()?.reshape((bs, chunk_num, dim * self.k))?;
-        let xs = self.linear1.forward(&xs)?.relu()?;
-        let mut xs = self.linear2.forward(&xs)?;
-        for block in &self.blocks {
-            xs = block.forward(&xs, None)?;
+        // xs: (feature_dim, feature_len)
+        let feature_lens = xs.dim(1)?;
+        // let aftercnn_lens = get_feat_extract_output_lengths(feature_lens);
+        let chunk_num = feature_lens / (self.n_window * 2);
+        let mut chunk_lengths = vec![self.n_window * 2; chunk_num];
+        let last = feature_lens % (self.n_window * 2);
+        if last > 0 {
+            chunk_lengths.push(last);
         }
-        Ok(xs)
+        let mut chunk_list = split_tensor(&xs.t()?, &chunk_lengths, 0)?;
+        if last > 0 {
+            let chunk_last = chunk_list
+                .pop()
+                .ok_or(anyhow::anyhow!(format!("chunk_list is empty")))?;
+            let pad_size = self.n_window * 2 - last;
+            let chunk_last = chunk_last.pad_with_zeros(0, 0, pad_size)?;
+            chunk_list.push(chunk_last);
+        }
+        let padded_feature = Tensor::stack(&chunk_list, 0)?.transpose(1, 2)?;
+        let feature_lens_after_cnn: Vec<usize> = chunk_lengths
+            .iter()
+            .map(|&i| get_feat_extract_output_lengths(i))
+            .collect();
+        let feature_len_after_cnn = feature_lens_after_cnn.iter().sum();
+        let padded_feature = padded_feature.unsqueeze(1)?;
+        let mut padded_embeds = vec![];
+        let feature_splits = split_tensor_with_size(&padded_feature, self.conv_chunksize, 0)?;
+        for chunk in feature_splits.iter() {
+            let padded_embed = self.conv2d1.forward(chunk)?.gelu()?;
+            let padded_embed = self.conv2d2.forward(&padded_embed)?.gelu()?;
+            let padded_embed = self.conv2d3.forward(&padded_embed)?.gelu()?;
+            padded_embeds.push(padded_embed);
+        }
+        let padded_embed = Tensor::cat(&padded_embeds, 0)?;
+        let (b, c, f, t) = padded_embed.dims4()?;
+        let padded_embed =
+            padded_embed
+                .permute((0, 3, 1, 2))?
+                .contiguous()?
+                .reshape((b, t, c * f))?;
+        let padded_embed = self.conv_out.forward(&padded_embed)?;
+        let padded_embed = self.positional_embedding.forward(&padded_embed, 0)?;
+        let padded_embed = padded_embed.flatten(0, 1)?;
+        let mut hidden_states = padded_embed
+            .narrow(0, 0, feature_len_after_cnn)?
+            .unsqueeze(0)?;
+        for layer in &self.layers {
+            hidden_states = layer.forward(&hidden_states, None)?;
+        }
+        let hidden_states = hidden_states.squeeze(0)?;
+        let hidden_states = self.ln_post.forward(&hidden_states)?;
+        let hidden_states = self.proj1.forward(&hidden_states)?.apply(&self.act)?;
+        let hidden_states = self.proj2.forward(&hidden_states)?;
+        Ok(hidden_states)
     }
 }
 
-pub struct FunAsrNanoModel {
-    audio_encoder: SenseVoiceEncoderSmall,
-    audio_adaptor: AudioAdaptor,
-    llm: Qwen3Model,
+pub struct Qwen3ASRThinkerTextModel {
+    embed_tokens: Embedding,
+    layers: Vec<Qwen3DecoderLayer>,
+    norm: RmsNorm,
+    rotary_emb: Qwen3VLTextRotaryEmbedding,
+    mrope_section: Vec<usize>,
 }
-impl FunAsrNanoModel {
-    pub fn new(vb: VarBuilder, config: &FunASRNanoConfig, llm_cfg: &Qwen3Config) -> Result<Self> {
-        let input_size = config.frontend_conf.lfr_m * config.frontend_conf.n_mels;
-        let audio_encoder = SenseVoiceEncoderSmall::new(
-            vb.pp("audio_encoder"),
-            input_size,
-            config.audio_encoder_conf.output_size,
-            config.audio_encoder_conf.attention_heads,
-            config.audio_encoder_conf.linear_units,
-            config.audio_encoder_conf.num_blocks,
-            config.audio_encoder_conf.tp_blocks,
-            config.audio_encoder_conf.normalize_before,
-            config.audio_encoder_conf.kernel_size,
-            config.audio_encoder_conf.sanm_shfit,
-        )?;
-        let audio_adaptor = AudioAdaptor::new(
-            vb.pp("audio_adaptor"),
-            config.audio_adaptor_conf.downsample_rate,
-            config.audio_adaptor_conf.encoder_dim,
-            config.audio_adaptor_conf.llm_dim,
-            config.audio_adaptor_conf.ffn_dim,
-            config.audio_adaptor_conf.n_layer,
-            8,
-        )?;
-        let llm = Qwen3Model::new(llm_cfg, vb.pp("llm"))?;
+
+impl Qwen3ASRThinkerTextModel {
+    pub fn new(vb: VarBuilder, cfg: &Qwen3ASRTextConfig) -> Result<Self> {
+        let embed_tokens = embedding(cfg.vocab_size, cfg.hidden_size, vb.pp("embed_tokens"))?;
+        let mut layers = vec![];
+        let vb_layers = vb.pp("layers");
+        let qwen3cfg = qwen3asr_text_config2qwen3_config(cfg);
+        for i in 0..cfg.num_hidden_layers {
+            let layer = Qwen3DecoderLayer::new(&qwen3cfg, vb_layers.pp(i))?;
+            layers.push(layer);
+        }
+        let norm = rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("norm"))?;
+        let rotary_emb = Qwen3VLTextRotaryEmbedding::new(cfg.head_dim, cfg.rope_theta);
         Ok(Self {
-            audio_encoder,
-            audio_adaptor,
-            llm,
+            embed_tokens,
+            layers,
+            norm,
+            rotary_emb,
+            mrope_section: cfg.rope_scaling.mrope_section.clone(),
+        })
+    }
+
+    pub fn forward(
+        &mut self,
+        input_embeds: &Tensor,
+        seqlen_offset: usize,
+        position_ids: Option<&Tensor>,
+    ) -> Result<Tensor> {
+        let (b_size, seq_len, _) = input_embeds.dims3()?;
+        let position_ids = match position_ids {
+            Some(ids) => ids.clone(),
+            None => Tensor::arange(
+                seqlen_offset as u32,
+                (seq_len + seqlen_offset) as u32,
+                input_embeds.device(),
+            )?
+            .unsqueeze(0)?
+            .unsqueeze(0)?
+            .broadcast_as((3, b_size, seq_len))?,
+        };
+        let (cos, sin) = self.rotary_emb.forward_asr(
+            &position_ids,
+            input_embeds.dtype(),
+            self.mrope_section.clone(),
+        )?;
+        let mut xs = input_embeds.clone();
+        let attention_mask: Option<Tensor> = {
+            if seq_len <= 1 {
+                None
+            } else {
+                Some(prepare_causal_attention_mask(
+                    b_size,
+                    seq_len,
+                    0,
+                    input_embeds.device(),
+                )?)
+            }
+        };
+        for layer in self.layers.iter_mut() {
+            xs = layer.forward(&xs, &cos, &sin, attention_mask.as_ref())?;
+        }
+        let xs = self.norm.forward(&xs)?;
+        Ok(xs)
+    }
+
+    pub fn clear_kv_cache(&mut self) {
+        for layer in self.layers.iter_mut() {
+            layer.clear_kv_cache()
+        }
+    }
+}
+
+pub struct Qwen3ASRThinker {
+    audio_tower: Qwen3ASRAudioEncoder,
+    model: Qwen3ASRThinkerTextModel,
+    audio_token_id: u32,
+    lm_head: Linear,
+}
+
+impl Qwen3ASRThinker {
+    pub fn new(vb: VarBuilder, config: &ThinkerConfig) -> Result<Self> {
+        let audio_tower = Qwen3ASRAudioEncoder::new(vb.pp("audio_tower"), &config.audio_config)?;
+        let model = Qwen3ASRThinkerTextModel::new(vb.pp("model"), &config.text_config)?;
+        let lm_head = if config.text_config.tie_word_embeddings {
+            Linear::new(model.embed_tokens.embeddings().clone(), None)
+        } else {
+            linear_no_bias(
+                config.text_config.hidden_size,
+                config.text_config.vocab_size,
+                vb.pp("lm_head"),
+            )?
+        };
+        Ok(Self {
+            audio_tower,
+            model,
+            audio_token_id: config.audio_token_id,
+            lm_head,
         })
     }
 
     pub fn forward(
         &mut self,
         input_ids: &Tensor,
-        speech: Option<&Tensor>,
-        fbank_mask: Option<&Tensor>,
         seqlen_offset: usize,
+        input_features: Option<&Tensor>,
     ) -> Result<Tensor> {
-        let mut inputs_embeds = self.llm.embedding_token_id(input_ids)?;
-        if let Some(speech) = speech
-            && let Some(fbank_mask) = fbank_mask
-        {
-            let speech = self.audio_encoder.forward(speech)?;
-            let encoder_out = self.audio_adaptor.forward(&speech)?;
-            let speech_token_len = fbank_mask.sum_all()?.to_scalar::<u32>()?;
-            let audio_embed = encoder_out
-                .squeeze(0)?
-                .narrow(0, 0, speech_token_len as usize)?;
-            inputs_embeds = masked_scatter_dim0(&inputs_embeds, &audio_embed, fbank_mask)?;
+        let mut input_embeds = self.model.embed_tokens.forward(input_ids)?;
+        if let Some(input_features) = input_features {
+            let audio_feature = self.audio_tower.forward(&input_features)?;
+            // println!("audio_feature: {}", audio_feature);
+            let audio_mask = get_equal_mask(input_ids, self.audio_token_id)?;
+            let n_audio_tokens = audio_mask.sum_all()?.to_scalar::<u32>()?;
+            if n_audio_tokens as usize != audio_feature.dim(0)? {
+                return Err(anyhow::anyhow!(format!(
+                    "n_audio_tokens num: {} not equal to audio_feature len: {}",
+                    n_audio_tokens,
+                    audio_feature.dim(0)?
+                )));
+            }
+            input_embeds = masked_scatter_dim0(&input_embeds, &audio_feature, &audio_mask)?;
         }
-        let logits = self
-            .llm
-            .forward(None, Some(&inputs_embeds), seqlen_offset)?;
+        let outputs = self.model.forward(&input_embeds, seqlen_offset, None)?;
+        let seq_len = outputs.dim(1)?;
+        let hidden_state = outputs.narrow(1, seq_len - 1, 1)?;
+        let logits = self.lm_head.forward(&hidden_state)?;
         Ok(logits)
     }
-
     pub fn clear_kv_cache(&mut self) {
-        self.llm.clear_kv_cache();
+        self.model.clear_kv_cache();
+    }
+}
+
+pub struct Qwen3ASRModel {
+    thinker: Qwen3ASRThinker,
+}
+
+impl Qwen3ASRModel {
+    pub fn new(vb: VarBuilder, config: &Qwen3ASRConfig) -> Result<Self> {
+        let thinker = Qwen3ASRThinker::new(vb.pp("thinker"), &config.thinker_config)?;
+        Ok(Self { thinker })
+    }
+
+    pub fn forward(
+        &mut self,
+        input_ids: &Tensor,
+        seqlen_offset: usize,
+        input_features: Option<&Tensor>,
+    ) -> Result<Tensor> {
+        let logits = self
+            .thinker
+            .forward(input_ids, seqlen_offset, input_features)?;
+        Ok(logits)
+    }
+    pub fn clear_kv_cache(&mut self) {
+        self.thinker.clear_kv_cache();
     }
 }

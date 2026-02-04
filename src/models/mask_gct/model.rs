@@ -1,5 +1,5 @@
 use anyhow::Result;
-use candle_core::{D, IndexOp, Tensor};
+use candle_core::{D, Tensor};
 use candle_nn::{
     Conv1d, Embedding, Init, LayerNorm, Linear, Module, VarBuilder, embedding, linear,
 };

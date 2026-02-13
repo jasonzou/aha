@@ -1,4 +1,5 @@
 pub mod audio_utils;
+pub mod error_utils;
 pub mod img_utils;
 pub mod tensor_utils;
 pub mod video_utils;

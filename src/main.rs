@@ -176,6 +176,7 @@ fn get_model_id(model: WhichModel) -> &'static str {
         WhichModel::FunASRNano2512 => "FunAudioLLM/Fun-ASR-Nano-2512",
         WhichModel::Qwen3Reranker0_6B => "Qwen/Qwen3-Reranker-0.6B",
         WhichModel::Qwen3Reranker4B => "Qwen/Qwen3-Reranker-4B",
+        WhichModel::GlmOCR => "ZhipuAI/GLM-OCR",
     }
 }
 
@@ -204,6 +205,7 @@ fn run_list() -> anyhow::Result<()> {
         WhichModel::FunASRNano2512,
         WhichModel::Qwen3Reranker0_6B,
         WhichModel::Qwen3Reranker4B,
+        WhichModel::GlmOCR,
     ];
 
     println!("Available models:");
@@ -400,6 +402,10 @@ fn run_run(args: RunArgs) -> anyhow::Result<()> {
         WhichModel::Qwen3Reranker0_6B | WhichModel::Qwen3Reranker4B => {
             use aha::exec::qwen3_reranker::Qwen3RerankerExec;
             Qwen3RerankerExec::run(&input, output.as_deref(), &weight_path)?;
+        }
+        WhichModel::GlmOCR => {
+            use aha::exec::glm_ocr::GlmOCRExec;
+            GlmOCRExec::run(&input, output.as_deref(), &weight_path)?;
         }
     }
 

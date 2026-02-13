@@ -4,6 +4,7 @@ pub mod deepseek_ocr;
 pub mod feature_extractor;
 pub mod fun_asr_nano;
 pub mod glm_asr_nano;
+pub mod glm_ocr;
 pub mod hunyuan_ocr;
 pub mod index_tts2;
 pub mod mask_gct;
@@ -29,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use crate::models::{
     deepseek_ocr::generate::DeepseekOCRGenerateModel,
     fun_asr_nano::generate::FunAsrNanoGenerateModel,
-    glm_asr_nano::generate::GlmAsrNanoGenerateModel,
+    glm_asr_nano::generate::GlmAsrNanoGenerateModel, glm_ocr::generate::GlmOCRGenerateModel,
     hunyuan_ocr::generate::HunyuanOCRGenerateModel, minicpm4::generate::MiniCPMGenerateModel,
     paddleocr_vl::generate::PaddleOCRVLGenerateModel, qwen2_5vl::generate::Qwen2_5VLGenerateModel,
     qwen3::generate::Qwen3GenerateModel, qwen3_asr::generate::Qwen3AsrGenerateModel,
@@ -83,6 +84,8 @@ pub enum WhichModel {
     Qwen3Reranker0_6B,
     #[value(name = "qwen3-reranker-4b")]
     Qwen3Reranker4B,
+    #[value(name = "glm-ocr", hide = true)]
+    GlmOCR,
 }
 
 pub trait GenerateModel {
@@ -218,6 +221,7 @@ pub enum ModelInstance<'a> {
     VoxCPM(Box<VoxCPMGenerate>),
     GlmASRNano(GlmAsrNanoGenerateModel<'a>),
     FunASRNano(FunAsrNanoGenerateModel),
+    GlmOCR(GlmOCRGenerateModel<'a>),
 }
 
 impl<'a> GenerateModel for ModelInstance<'a> {
@@ -235,6 +239,7 @@ impl<'a> GenerateModel for ModelInstance<'a> {
             ModelInstance::VoxCPM(model) => model.generate(mes),
             ModelInstance::GlmASRNano(model) => model.generate(mes),
             ModelInstance::FunASRNano(model) => model.generate(mes),
+            ModelInstance::GlmOCR(model) => model.generate(mes),
         }
     }
 
@@ -262,6 +267,7 @@ impl<'a> GenerateModel for ModelInstance<'a> {
             ModelInstance::VoxCPM(model) => model.generate_stream(mes),
             ModelInstance::GlmASRNano(model) => model.generate_stream(mes),
             ModelInstance::FunASRNano(model) => model.generate_stream(mes),
+            ModelInstance::GlmOCR(model) => model.generate_stream(mes),
         }
     }
 }
@@ -349,6 +355,10 @@ pub fn load_model(model_type: WhichModel, path: &str) -> Result<ModelInstance<'_
             return Err(anyhow::anyhow!(
                 "Reranker models should be loaded via load_rerank_model()"
             ));
+        }
+        WhichModel::GlmOCR => {
+            let model = GlmOCRGenerateModel::init(path, None, None)?;
+            ModelInstance::GlmOCR(model)
         }
     };
     Ok(model)

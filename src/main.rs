@@ -1,6 +1,7 @@
 use std::{net::IpAddr, str::FromStr};
 
 use aha::{
+    models,
     models::WhichModel,
     utils::{download_model, get_default_save_dir},
 };
@@ -11,7 +12,7 @@ use rocket::{
     routes,
 };
 
-use crate::api::init;
+use crate::api::{init, init_embedding, init_rerank};
 mod api;
 
 #[derive(Parser, Debug)]
@@ -163,6 +164,8 @@ fn get_model_id(model: WhichModel) -> &'static str {
         WhichModel::Qwen3vl4B => "Qwen/Qwen3-VL-4B-Instruct",
         WhichModel::Qwen3vl8B => "Qwen/Qwen3-VL-8B-Instruct",
         WhichModel::Qwen3vl32B => "Qwen/Qwen3-VL-32B-Instruct",
+        WhichModel::Qwen3Embedding0_6B => "Qwen/Qwen3-Embedding-0.6B",
+        WhichModel::Qwen3Embedding4B => "Qwen/Qwen3-Embedding-4B",
         WhichModel::DeepSeekOCR => "deepseek-ai/DeepSeek-OCR",
         WhichModel::HunyuanOCR => "Tencent-Hunyuan/HunyuanOCR",
         WhichModel::PaddleOCRVL => "PaddlePaddle/PaddleOCR-VL",
@@ -171,6 +174,8 @@ fn get_model_id(model: WhichModel) -> &'static str {
         WhichModel::VoxCPM1_5 => "OpenBMB/VoxCPM1.5",
         WhichModel::GlmASRNano2512 => "ZhipuAI/GLM-ASR-Nano-2512",
         WhichModel::FunASRNano2512 => "FunAudioLLM/Fun-ASR-Nano-2512",
+        WhichModel::Qwen3Reranker0_6B => "Qwen/Qwen3-Reranker-0.6B",
+        WhichModel::Qwen3Reranker4B => "Qwen/Qwen3-Reranker-4B",
     }
 }
 
@@ -187,6 +192,8 @@ fn run_list() -> anyhow::Result<()> {
         WhichModel::Qwen3vl4B,
         WhichModel::Qwen3vl8B,
         WhichModel::Qwen3vl32B,
+        WhichModel::Qwen3Embedding0_6B,
+        WhichModel::Qwen3Embedding4B,
         WhichModel::DeepSeekOCR,
         WhichModel::HunyuanOCR,
         WhichModel::PaddleOCRVL,
@@ -195,6 +202,8 @@ fn run_list() -> anyhow::Result<()> {
         WhichModel::VoxCPM1_5,
         WhichModel::GlmASRNano2512,
         WhichModel::FunASRNano2512,
+        WhichModel::Qwen3Reranker0_6B,
+        WhichModel::Qwen3Reranker4B,
     ];
 
     println!("Available models:");
@@ -234,8 +243,16 @@ async fn run_cli(args: CliArgs) -> anyhow::Result<()> {
         }
     };
 
-    init(common.model, model_path)?;
-    start_http_server(common.address, common.port).await?;
+    let is_embedding = models::is_embedding_model(common.model);
+    let is_reranker = models::is_reranker_model(common.model);
+    if is_embedding {
+        init_embedding(model_path)?;
+    } else if is_reranker {
+        init_rerank(model_path)?;
+    } else {
+        init(common.model, model_path)?;
+    }
+    start_http_server(common.address, common.port, is_embedding, is_reranker).await?;
 
     Ok(())
 }
@@ -252,8 +269,16 @@ async fn run_serv(args: ServArgs) -> anyhow::Result<()> {
         None => get_default_weight_path(common.model),
     };
 
-    init(common.model, model_path)?;
-    start_http_server(common.address, common.port).await?;
+    let is_embedding = models::is_embedding_model(common.model);
+    let is_reranker = models::is_reranker_model(common.model);
+    if is_embedding {
+        init_embedding(model_path)?;
+    } else if is_reranker {
+        init_rerank(model_path)?;
+    } else {
+        init(common.model, model_path)?;
+    }
+    start_http_server(common.address, common.port, is_embedding, is_reranker).await?;
 
     Ok(())
 }
@@ -336,6 +361,10 @@ fn run_run(args: RunArgs) -> anyhow::Result<()> {
             use aha::exec::qwen3vl::Qwen3vlExec;
             Qwen3vlExec::run(&input, output.as_deref(), &weight_path)?;
         }
+        WhichModel::Qwen3Embedding0_6B | WhichModel::Qwen3Embedding4B => {
+            use aha::exec::qwen3_embedding::Qwen3EmbeddingExec;
+            Qwen3EmbeddingExec::run(&input, output.as_deref(), &weight_path)?;
+        }
         WhichModel::DeepSeekOCR => {
             use aha::exec::deepseek_ocr::DeepSeekORExec;
             DeepSeekORExec::run(&input, output.as_deref(), &weight_path)?;
@@ -367,6 +396,10 @@ fn run_run(args: RunArgs) -> anyhow::Result<()> {
         WhichModel::FunASRNano2512 => {
             use aha::exec::fun_asr_nano::FunASRNanoExec;
             FunASRNanoExec::run(&input, output.as_deref(), &weight_path)?;
+        }
+        WhichModel::Qwen3Reranker0_6B | WhichModel::Qwen3Reranker4B => {
+            use aha::exec::qwen3_reranker::Qwen3RerankerExec;
+            Qwen3RerankerExec::run(&input, output.as_deref(), &weight_path)?;
         }
     }
 
@@ -401,7 +434,12 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-pub(crate) async fn start_http_server(address: String, port: u16) -> anyhow::Result<()> {
+pub(crate) async fn start_http_server(
+    address: String,
+    port: u16,
+    is_embedding: bool,
+    is_reranker: bool,
+) -> anyhow::Result<()> {
     let mut builder = rocket::build().configure(Config {
         address: IpAddr::from_str(&address)?,
         port,
@@ -413,11 +451,15 @@ pub(crate) async fn start_http_server(address: String, port: u16) -> anyhow::Res
         ..Config::default()
     });
 
-    builder = builder.mount("/chat", routes![api::chat]);
-    // /images/remove_background
-    builder = builder.mount("/images", routes![api::remove_background]);
-    // /images/speech
-    builder = builder.mount("/audio", routes![api::speech]);
+    if is_embedding {
+        builder = builder.mount("/", routes![api::embeddings]);
+    } else if is_reranker {
+        builder = builder.mount("/", routes![api::rerank]);
+    } else {
+        builder = builder.mount("/chat", routes![api::chat]);
+        builder = builder.mount("/images", routes![api::remove_background]);
+        builder = builder.mount("/audio", routes![api::speech]);
+    }
 
     builder.launch().await?;
     Ok(())

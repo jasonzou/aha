@@ -1,7 +1,11 @@
 use std::pin::pin;
 use std::sync::{Arc, OnceLock};
 
-use aha::models::{GenerateModel, ModelInstance, WhichModel, load_model};
+use aha::models::{
+    EmbedModel, EmbeddingParameters, GenerateModel, ModelInstance, RerankModel, RerankParameters,
+    WhichModel, load_model, qwen3_embedding::model::Qwen3EmbeddingModel,
+    qwen3_reranker::model::Qwen3RerankerModel,
+};
 use aha::utils::string_to_static_str;
 use aha_openai_dive::v1::resources::chat::ChatCompletionParameters;
 use rocket::futures::StreamExt;
@@ -16,11 +20,27 @@ use rocket::{
 use tokio::sync::RwLock;
 
 static MODEL: OnceLock<Arc<RwLock<ModelInstance<'static>>>> = OnceLock::new();
+static EMBEDDING_MODEL: OnceLock<Arc<RwLock<Qwen3EmbeddingModel>>> = OnceLock::new();
+static RERANK_MODEL: OnceLock<Arc<RwLock<Qwen3RerankerModel>>> = OnceLock::new();
 
 pub fn init(model_type: WhichModel, path: String) -> anyhow::Result<()> {
     let model_path = string_to_static_str(path);
     let model = load_model(model_type, model_path)?;
     MODEL.get_or_init(|| Arc::new(RwLock::new(model)));
+    Ok(())
+}
+
+pub fn init_embedding(path: String) -> anyhow::Result<()> {
+    let model_path = string_to_static_str(path);
+    let model = Qwen3EmbeddingModel::init(model_path, None, None)?;
+    EMBEDDING_MODEL.get_or_init(|| Arc::new(RwLock::new(model)));
+    Ok(())
+}
+
+pub fn init_rerank(path: String) -> anyhow::Result<()> {
+    let model_path = string_to_static_str(path);
+    let model = Qwen3RerankerModel::init(model_path, None, None)?;
+    RERANK_MODEL.get_or_init(|| Arc::new(RwLock::new(model)));
     Ok(())
 }
 
@@ -133,6 +153,44 @@ pub(crate) async fn speech(req: Json<ChatCompletionParameters>) -> (Status, Stri
             .ok_or_else(|| anyhow::anyhow!("model not init"))
             .unwrap();
         model_ref.write().await.generate(req.into_inner())
+    };
+    match response {
+        Ok(res) => {
+            let response_str = serde_json::to_string(&res).unwrap();
+            (Status::Ok, response_str)
+        }
+        Err(e) => (Status::InternalServerError, e.to_string()),
+    }
+}
+
+#[post("/embeddings", data = "<req>")]
+pub(crate) async fn embeddings(req: Json<EmbeddingParameters>) -> (Status, String) {
+    let response = {
+        let model_ref = EMBEDDING_MODEL
+            .get()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("embedding model not init"))
+            .unwrap();
+        model_ref.write().await.embed(req.into_inner())
+    };
+    match response {
+        Ok(res) => {
+            let response_str = serde_json::to_string(&res).unwrap();
+            (Status::Ok, response_str)
+        }
+        Err(e) => (Status::InternalServerError, e.to_string()),
+    }
+}
+
+#[post("/rerank", data = "<req>")]
+pub(crate) async fn rerank(req: Json<RerankParameters>) -> (Status, String) {
+    let response = {
+        let model_ref = RERANK_MODEL
+            .get()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("rerank model not init"))
+            .unwrap();
+        model_ref.write().await.rerank(req.into_inner())
     };
     match response {
         Ok(res) => {

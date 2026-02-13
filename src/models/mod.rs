@@ -12,6 +12,8 @@ pub mod paddleocr_vl;
 pub mod qwen2_5vl;
 pub mod qwen3;
 pub mod qwen3_asr;
+pub mod qwen3_embedding;
+pub mod qwen3_reranker;
 pub mod qwen3vl;
 pub mod rmbg2_0;
 pub mod voxcpm;
@@ -22,6 +24,7 @@ use aha_openai_dive::v1::resources::chat::{
 };
 use anyhow::Result;
 use rocket::futures::Stream;
+use serde::{Deserialize, Serialize};
 
 use crate::models::{
     deepseek_ocr::generate::DeepseekOCRGenerateModel,
@@ -56,6 +59,10 @@ pub enum WhichModel {
     Qwen3vl8B,
     #[value(name = "qwen3vl-32b", hide = true)]
     Qwen3vl32B,
+    #[value(name = "qwen3-embedding-0.6b")]
+    Qwen3Embedding0_6B,
+    #[value(name = "qwen3-embedding-4b")]
+    Qwen3Embedding4B,
     #[value(name = "deepseek-ocr", hide = true)]
     DeepSeekOCR,
     #[value(name = "hunyuan-ocr", hide = true)]
@@ -72,6 +79,10 @@ pub enum WhichModel {
     GlmASRNano2512,
     #[value(name = "fun-asr-nano-2512", hide = true)]
     FunASRNano2512,
+    #[value(name = "qwen3-reranker-0.6b")]
+    Qwen3Reranker0_6B,
+    #[value(name = "qwen3-reranker-4b")]
+    Qwen3Reranker4B,
 }
 
 pub trait GenerateModel {
@@ -87,6 +98,111 @@ pub trait GenerateModel {
                 + '_,
         >,
     >;
+}
+
+fn default_encoding_format() -> String {
+    "float".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EmbeddingParameters {
+    pub input: EmbeddingInput,
+    pub model: String,
+    pub dimensions: Option<usize>,
+    #[serde(default = "default_encoding_format")]
+    pub encoding_format: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum EmbeddingInput {
+    Single(String),
+    Batch(Vec<String>),
+}
+
+impl EmbeddingInput {
+    pub fn into_vec(self) -> Vec<String> {
+        match self {
+            EmbeddingInput::Single(s) => vec![s],
+            EmbeddingInput::Batch(v) => v,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EmbeddingData {
+    pub object: String,
+    pub embedding: Vec<f32>,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EmbeddingResponse {
+    pub object: String,
+    pub data: Vec<EmbeddingData>,
+    pub model: String,
+    pub usage: EmbeddingUsage,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EmbeddingUsage {
+    pub prompt_tokens: u32,
+    pub total_tokens: u32,
+}
+
+pub trait EmbedModel {
+    fn embed(&mut self, params: EmbeddingParameters) -> Result<EmbeddingResponse>;
+}
+
+pub fn is_embedding_model(model_type: WhichModel) -> bool {
+    matches!(
+        model_type,
+        WhichModel::Qwen3Embedding0_6B | WhichModel::Qwen3Embedding4B
+    )
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RerankParameters {
+    pub query: String,
+    pub documents: Vec<String>,
+    pub model: String,
+    #[serde(default = "default_top_k")]
+    pub top_k: usize,
+    #[serde(default = "default_return_documents")]
+    pub return_documents: bool,
+}
+
+fn default_top_k() -> usize {
+    usize::MAX
+}
+
+fn default_return_documents() -> bool {
+    false
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RerankResult {
+    pub index: usize,
+    pub relevance_score: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RerankResponse {
+    pub model: String,
+    pub results: Vec<RerankResult>,
+}
+
+pub trait RerankModel {
+    fn rerank(&mut self, params: RerankParameters) -> Result<RerankResponse>;
+}
+
+pub fn is_reranker_model(model_type: WhichModel) -> bool {
+    matches!(
+        model_type,
+        WhichModel::Qwen3Reranker0_6B | WhichModel::Qwen3Reranker4B
+    )
 }
 
 pub enum ModelInstance<'a> {
@@ -192,6 +308,11 @@ pub fn load_model(model_type: WhichModel, path: &str) -> Result<ModelInstance<'_
             let model = Qwen3VLGenerateModel::init(path, None, None)?;
             ModelInstance::Qwen3VL(model)
         }
+        WhichModel::Qwen3Embedding0_6B | WhichModel::Qwen3Embedding4B => {
+            return Err(anyhow::anyhow!(
+                "Embedding models should be loaded via load_embedding_model()"
+            ));
+        }
         WhichModel::DeepSeekOCR => {
             let model = DeepseekOCRGenerateModel::init(path, None, None)?;
             ModelInstance::DeepSeekOCR(model)
@@ -223,6 +344,11 @@ pub fn load_model(model_type: WhichModel, path: &str) -> Result<ModelInstance<'_
         WhichModel::FunASRNano2512 => {
             let model = FunAsrNanoGenerateModel::init(path, None, None)?;
             ModelInstance::FunASRNano(model)
+        }
+        WhichModel::Qwen3Reranker0_6B | WhichModel::Qwen3Reranker4B => {
+            return Err(anyhow::anyhow!(
+                "Reranker models should be loaded via load_rerank_model()"
+            ));
         }
     };
     Ok(model)

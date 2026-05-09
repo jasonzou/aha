@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+### 2026-05-09
+- 合并 pr/eastgold15/46, 添加 aha-ui
+
+### 2026-04-25
+- VoxCPM 更新流式生成
+
 ### 2026-04-17
 - Qwen3ASR 增加 vad 数据识别
 

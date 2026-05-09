@@ -38,7 +38,7 @@ rayon = "1.10"
 realfft = "3.5.0"
 symphonia = { version = "0.5.5", features = ["mp3", "wav"] }
 serde_yaml = "0.9.34"
-zip = "7.2.0"
+zip = "8.5.1"
 half = "2.7.1"
 byteorder = "1.5.0"
 sentencepiece = "0.13.1"
@@ -46,9 +46,8 @@ ahash = "0.8.12"
 derive_builder = "0.20.2"
 kaldi-native-fbank = "0.1.0"
 rand = "0.10.1"
+esaxx-rs = "0.1.10"
 
-[patch.crates-io]
-esaxx-rs = { path = "vendor/esaxx-rs" }
 
 [features]
 flash-attn = ["candle-flash-attn"]
@@ -61,4 +60,3 @@ needless_range_loop = "allow"
 single_range_in_vec_init = "allow"
 manual_div_ceil = "allow"
 
-[dev-dependencies]

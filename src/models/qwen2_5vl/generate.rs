@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::models::common::generate::get_logit_processor;
+use crate::models::common::sample::get_logit_processor;
 use crate::params::chat::{
     ChatCompletionChunkResponse, ChatCompletionParameters, ChatCompletionResponse,
 };

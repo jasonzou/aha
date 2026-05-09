@@ -1,12 +1,12 @@
 use anyhow::Result;
 use candle_core::{DType, Device, Tensor};
-use candle_transformers::generation::{LogitsProcessor, Sampling};
+use candle_transformers::generation::{LogitsProcessor};
 use rocket::async_stream::stream;
 use rocket::futures::Stream;
 use std::time::Instant;
 
 use crate::{
-    models::common::{InferenceModel, MultiModalData},
+    models::common::{InferenceModel, MultiModalData, sample::{use_repeat_penalty, get_logit_processor}},
     params::chat::{ChatCompletionChunkResponse, ChatCompletionResponse},
     tokenizer::TokenizerModel,
     utils::response_utils::{
@@ -14,38 +14,6 @@ use crate::{
         build_completion_chunk_response, build_completion_response_with_time,
     },
 };
-pub fn get_logit_processor(
-    temperature: Option<f32>,
-    top_p: Option<f32>,
-    top_k: Option<usize>,
-    seed: u64,
-) -> LogitsProcessor {
-    let temperature = temperature.and_then(|v| if v < 1e-7 { None } else { Some(v) });
-    match top_k {
-        None => LogitsProcessor::new(
-            seed,
-            temperature.map(|temp| temp as f64),
-            top_p.map(|tp| tp as f64),
-        ),
-        Some(k) => {
-            let sampling = match temperature {
-                None => Sampling::ArgMax,
-                Some(temperature) => match top_p {
-                    None => Sampling::TopK {
-                        k,
-                        temperature: temperature as f64,
-                    },
-                    Some(p) => Sampling::TopKThenTopP {
-                        k,
-                        p: p as f64,
-                        temperature: temperature as f64,
-                    },
-                },
-            };
-            LogitsProcessor::from_sampling(seed, sampling)
-        }
-    }
-}
 
 pub struct GenerationContext {
     pub logit_processor: LogitsProcessor,
@@ -103,16 +71,12 @@ fn sample_and_push(
 ) -> Result<u32> {
     let logits = logits.squeeze(0)?.squeeze(0)?.to_dtype(DType::F32)?;
     // 重复惩罚
-    let logits = if ctx.repeat_penalty == 1. || ctx.repeat_last_n == 0 {
-        logits
-    } else {
-        let start_at = generated.len().saturating_sub(ctx.repeat_last_n);
-        candle_transformers::utils::apply_repeat_penalty(
-            &logits,
-            ctx.repeat_penalty,
-            &generated[start_at..],
-        )?
-    };
+    let logits = use_repeat_penalty(
+        ctx.repeat_penalty,
+        Some(ctx.repeat_last_n),
+        &logits,
+        generated,
+    )?;
     let token = ctx.logit_processor.sample(&logits)?;
     generated.push(token);
     Ok(token)

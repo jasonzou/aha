@@ -470,7 +470,14 @@ pub fn get_audio_format_from_bytes(bytes: &[u8]) -> Result<String> {
     }
 }
 
-pub fn load_audio_use_symphonia(audio_vec: Vec<u8>, device: &Device) -> Result<(Tensor, usize)> {
+/// return
+///     audio shape: (channel, audio_len)
+///     sample_rate: usize
+pub fn load_audio_use_symphonia(
+    audio_vec: Vec<u8>,
+    device: &Device,
+    target_channels: usize,
+) -> Result<(Tensor, usize)> {
     let extension = get_audio_format_from_bytes(&audio_vec)?;
     let content = Cursor::new(audio_vec);
     let mss = MediaSourceStream::new(Box::new(content), Default::default());
@@ -558,16 +565,26 @@ pub fn load_audio_use_symphonia(audio_vec: Vec<u8>, device: &Device) -> Result<(
         }
     }
     let mut audio_tensor = Tensor::new(all_samples, device)?;
-    if channels > 1 {
-        // 对channel通道求平均， channel维度变为1
-        audio_tensor = audio_tensor.mean_keepdim(0)?;
+    if target_channels == channels {
+        return Ok((audio_tensor, sample_rate as usize));
     }
-    Ok((audio_tensor, sample_rate as usize))
-}
 
-pub fn load_audio(path: &str, device: &Device) -> Result<(Tensor, usize)> {
-    let audio_vec = get_audio_bytes_vec(path)?;
-    load_audio_use_symphonia(audio_vec, device)
+    audio_tensor = if channels == 1 {
+        // Mono to Multi-channel: Repeat
+        audio_tensor.repeat((target_channels, 1))?
+    } else if target_channels == 1 {
+        // Multi-channel to Mono: Mean
+        audio_tensor.mean_keepdim(0)?
+    } else {
+        // Unsupported conversion (e.g., Stereo to 5.1)
+        return Err(anyhow!(
+            "target_channels: {}, audio channels: {}, can't change directly",
+            target_channels,
+            channels
+        ));
+    };
+
+    Ok((audio_tensor, sample_rate as usize))
 }
 
 pub fn resample_audio_from_vec_f32(
@@ -599,12 +616,14 @@ pub fn resample_audio_from_vec_f32(
     Ok(audio)
 }
 
+/// return shape: (channel, audio_len)
 pub fn resample_audio_from_bytes(
     audio_vec: Vec<u8>,
     device: &Device,
     target_sample_rate: Option<usize>,
+    target_channels: usize,
 ) -> Result<Tensor> {
-    let (mut audio, sr) = load_audio_use_symphonia(audio_vec, device)?;
+    let (mut audio, sr) = load_audio_use_symphonia(audio_vec, device, target_channels)?;
     if let Some(target_sample_rate) = target_sample_rate
         && target_sample_rate != sr
     {
@@ -613,16 +632,19 @@ pub fn resample_audio_from_bytes(
     Ok(audio)
 }
 
+/// return shape: (channel, audio_len)
 pub fn load_audio_with_resample(
     path: &str,
     device: &Device,
     target_sample_rate: Option<usize>,
+    target_channels: Option<usize>,
 ) -> Result<Tensor> {
     // hound 只支持wav文件
     // let audio_path = get_audio_path(path)?;
     // let (mut audio, sr) = load_audio_use_hound(audio_path, device)?;
+    let target_channels = target_channels.unwrap_or(1);
     let audio_vec = get_audio_bytes_vec(path)?;
-    resample_audio_from_bytes(audio_vec, device, target_sample_rate)
+    resample_audio_from_bytes(audio_vec, device, target_sample_rate, target_channels)
 }
 
 pub fn save_wav(audio: &Tensor, save_path: &str, sample_rate: u32) -> Result<()> {
@@ -692,12 +714,13 @@ pub fn extract_audios(
     mes: &ChatCompletionParameters,
     device: &Device,
     target_sample_rate: Option<usize>,
+    target_channels: Option<usize>,
 ) -> Result<Vec<Tensor>> {
     let audio_url_vec = extract_audio_url(mes);
     // 并行加载音频
     audio_url_vec
         .par_iter()
-        .map(|url| load_audio_with_resample(url, device, target_sample_rate))
+        .map(|url| load_audio_with_resample(url, device, target_sample_rate, target_channels))
         .collect()
     // #[cfg(not(feature = "ffmpeg"))]
     // {

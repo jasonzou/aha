@@ -12,6 +12,7 @@ pub mod lfm2;
 pub mod lfm2vl;
 pub mod mask_gct;
 pub mod minicpm4;
+pub mod moss;
 pub mod paddleocr_vl;
 pub mod qwen2;
 pub mod qwen2_5vl;
@@ -27,6 +28,8 @@ pub mod voxcpm_refact;
 pub mod w2v_bert_2_0;
 // pub mod sam3;
 pub mod fire_red_vad;
+pub mod gpt2;
+pub mod llama;
 
 use crate::{
     models::{

@@ -20,23 +20,15 @@
 
 # aha
 
-**Lightweight AI Inference Engine — All-in-one Solution for Text, Vision, Speech, and OCR**
+**Lightweight ASR Inference Engine — Speech Recognition Solution**
 
-aha is a high-performance, cross-platform AI inference engine built with Rust and the Candle framework. It brings state-of-the-art AI models to your local machine—no API keys, no cloud dependencies, just pure, fast AI running directly on your hardware.
-
+aha is a high-performance, cross-platform ASR inference engine built with Rust and the Candle framework. It brings state-of-the-art speech recognition models to your local machine—no API keys, no cloud dependencies, just pure, fast AI running directly on your hardware.
 
 ### Supported Models
 
 | Category | Models |
 |----------|--------|
-| **Text** | Qwen3, MiniCPM4, LFM2, LFM2.5 |
-| **Vision** | Qwen2.5-VL, Qwen3-VL, Qwen3.5, <br> LFM2.5-VL, LFM2-VL |
-| **OCR** | DeepSeek-OCR, DeepSeek-OCR-2 , PaddleOCR-VL <br> PaddleOCR-VL1.5, Hunyuan-OCR, GLM-OCR |
 | **ASR** | GLM-ASR-Nano, Fun-ASR-Nano, Qwen3-ASR |
-| **TTS** | VoxCPM, VoxCPM1.5, VoxCPM2 |
-| **Image** | RMBG-2.0 (background removal) |
-| **Embedding** | Qwen3-Embedding, all-MiniLM-L6-v2 |
-| **Reranker** | Qwen3-Reranker |
 
 ## Changelog
 ### 2026-05-11
@@ -58,12 +50,11 @@ aha is a high-performance, cross-platform AI inference engine built with Rust an
 
 ## Why aha?
 - **🚀 High-Performance Inference** - Powered by Candle framework for efficient tensor computation and model inference
-- **🔧 Unified Interface** — One tool for text, vision, speech, and OCR
+- **🔧 Unified Interface** — One tool for speech recognition
 - **📦 Local-First** — All processing runs locally, no data leaves your machine
 - **🎯 Cross-Platform** — Works on Linux, macOS, and Windows
 - **⚡ GPU Accelerated** — Optional CUDA support for faster inference
 - **🛡️ Memory Safe** — Built with Rust for reliability
-- **🧠 Attention Optimization** - Optional Flash Attention support for optimized long sequence processing
 
 ## Quick Start
 
@@ -107,36 +98,38 @@ aha cli -m Qwen/Qwen3-ASR-0.6B
 # Run inference directly (without starting service)
 aha run -m Qwen/Qwen3-ASR-0.6B -i "audio.wav"
 
-# Run local all-MiniLM-L6-v2 embedding (native safetensors)
-aha run -m all-minilm-l6-v2 -i "Rust embedding test" --weight-path D:\model_download\all-MiniLM-L6-v2
-
 # Start service only (model already downloaded)
 aha serv -m Qwen/Qwen3-ASR-0.6B -p 10100
 ```
 
-### Chat
+### Speech Recognition (ASR)
 
 ```bash
-aha serv -m Qwen/Qwen3-0.6B -p 10100
-```
+# Start an ASR model
+aha cli -m Qwen/Qwen3-ASR-0.6B
 
-Then use the unified (OpenAI-compatible) API:
-
-```bash
+# Transcribe audio via API
 curl http://localhost:10100/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen/Qwen3-0.6B",
-    "messages": [{"role": "user", "content": "Hello!"}],
+    "model": "Qwen/Qwen3-ASR-0.6B",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {"type": "text", "text": "Transcribe this audio."},
+          {"type": "audio", "audio_url": {"url": "file:///path/to/audio.wav"}}
+        ]
+      }
+    ],
     "stream": false
-  }
-'
+  }'
 ```
 
 ### aha-ui
 ```bash
 cd aha-ui
-``` 
+```
 
 #### use npm
 ##### install npm
@@ -201,59 +194,17 @@ pnpm run tauri build
 | [Installation](docs/installation.md) | Detailed installation guide |
 | [CLI Reference](docs/cli.md) | Command-line interface |
 | [API Documentation](docs/api.md) | Library & REST API |
-| [Supported Models](docs/supported-models.md) | Available AI models |
+| [Supported Models](docs/supported-models.md) | Available ASR models |
 | [Concepts](docs/concepts.md) | Architecture & design |
 | [Development](docs/development.md) | Contributing guide |
 | [Changelog](docs/changelog.md) | Version history |
 
-
-## Development
-
-### Using aha as a Library
-> cargo add aha
-
-```rust
-# VoxCPM example
-use aha::models::voxcpm::generate::VoxCPMGenerate;
-use aha::utils::audio_utils::save_wav;
-use anyhow::Result;
-
-fn main() -> Result<()> {
-    let model_path = "xxx/openbmb/VoxCPM-0.5B/";
-
-    let mut voxcpm_generate = VoxCPMGenerate::init(model_path, None, None)?;
-
-    let generate = voxcpm_generate.generate(
-        "The sun is shining bright, flowers smile at me, birds say early early early".to_string(),
-        None,
-        None,
-        2,
-        100,
-        10,
-        2.0,
-        false,
-        6.0,
-    )?;
-
-    let _ = save_wav(&generate, "voxcpm.wav")?;
-    Ok(())
-}
-```
-
-### Extending New Models
-
-- Create new model file in src/models/
-- Export in src/models/mod.rs
-- Add support for CLI model inference in src/exec/
-- Add tests and examples in tests/
-
 ## Features
 
 - High-performance inference via Candle framework
-- Multi-modal model support (vision, language, speech)
+- ASR model support
 - Clean, easy-to-use API design
 - Minimal dependencies, compact binaries
-- Flash Attention support for long sequences
 - FFmpeg support for multimedia processing
 
 ## License

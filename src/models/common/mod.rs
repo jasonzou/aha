@@ -1,11 +1,9 @@
 use anyhow::Result;
 use candle_core::Tensor;
-pub mod embedding;
 pub mod generate;
 pub mod gguf;
 pub mod model_mapping;
 pub mod modules;
-pub mod reranker;
 pub mod sample;
 
 /// 多模态模型的特征数据

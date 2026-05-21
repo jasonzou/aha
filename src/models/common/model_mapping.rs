@@ -57,7 +57,6 @@ impl WhichModel {
         }
     }
 
-    /// Get the model type category for this model variant
     pub fn model_type(self) -> &'static str {
         match self {
             WhichModel::Qwen3ASR0_6B

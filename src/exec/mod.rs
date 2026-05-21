@@ -5,9 +5,7 @@
 
 
 pub mod fun_asr_nano;
-pub mod glm_asr_nano;
 pub mod qwen3;
-pub mod qwen3_5;
 pub mod qwen3_asr;
 
 use anyhow::Result;

@@ -83,13 +83,13 @@ pub fn load_model<'a>(
     dtype: Option<DType>,
 ) -> Result<ModelInstance<'a>> {
     match model_type {
-        WhichModel::Qwen3_0_6B | WhichModel::Qwen3_1_7B | WhichModel::Qwen3_4B => {
-            let model = Qwen3GenerateModel::init(path, device, dtype)?;
-            Ok(ModelInstance::Qwen3(model))
-        }
         WhichModel::Qwen3ASR0_6B | WhichModel::Qwen3ASR1_7B => {
             let model = Qwen3AsrGenerateModel::init(path, device, dtype)?;
             Ok(ModelInstance::Qwen3ASR(model))
+        }
+        WhichModel::GlmASRNano2512 => {
+            let model = FunAsrNanoGenerateModel::init(path, device, dtype)?;
+            Ok(ModelInstance::FunASRNano(model))
         }
         WhichModel::FunASRNano2512 => {
             let model = FunAsrNanoGenerateModel::init(path, device, dtype)?;

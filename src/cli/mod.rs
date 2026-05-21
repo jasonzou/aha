@@ -238,13 +238,10 @@ pub(crate) fn run_run(args: RunArgs) -> anyhow::Result<()> {
         None => get_default_weight_path(model),
     };
 match model {
-WhichModel::Qwen3_0_6B | WhichModel::Qwen3_1_7B | WhichModel::Qwen3_4B => {
-            qwen3::Qwen3Exec::run(&input, output.as_deref(), &weight_path)?;
-        }
         WhichModel::Qwen3ASR0_6B | WhichModel::Qwen3ASR1_7B => {
             qwen3_asr::Qwen3ASRExec::run(&input, output.as_deref(), &weight_path)?;
         }
-        WhichModel::FunASRNano2512 => {
+        WhichModel::GlmASRNano2512 | WhichModel::FunASRNano2512 => {
             fun_asr_nano::FunASRNanoExec::run(&input, output.as_deref(), &weight_path)?;
         }
         _ => {

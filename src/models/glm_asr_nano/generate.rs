@@ -8,7 +8,7 @@ use crate::{
 use anyhow::Result;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
-use rocket::futures::Stream;
+use futures::Stream;
 
 use crate::{
     chat_template::ChatTemplate,

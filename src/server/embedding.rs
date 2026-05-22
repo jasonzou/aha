@@ -1,4 +1,5 @@
-use rocket::{http::Status, post, serde::json::Json};
+use axum::{Json as AxumJson};
+use axum::response::IntoResponse;
 use serde_json::Value;
 
 use crate::{
@@ -28,24 +29,27 @@ fn parse_embedding_input(input: &Value) -> anyhow::Result<Vec<String>> {
     }
 }
 
-#[post("/embeddings", data = "<req>")]
-pub(crate) async fn embeddings(req: Json<EmbeddingRequest>) -> (Status, Json<Value>) {
+pub(crate) async fn embeddings(
+    AxumJson(req): AxumJson<EmbeddingRequest>,
+) -> axum::response::Response {
     let texts = match parse_embedding_input(&req.input) {
         Ok(v) => v,
         Err(e) => {
             return (
-                Status::BadRequest,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
+                axum::http::StatusCode::BAD_REQUEST,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                serde_json::json!({ "error": e.to_string() }).to_string(),
+            ).into_response();
         }
     };
     let model_ref = match MODEL.get().cloned() {
         Some(v) => v,
         None => {
             return (
-                Status::ServiceUnavailable,
-                Json(serde_json::json!({ "error": "model not init" })),
-            );
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                serde_json::json!({ "error": "model not init" }).to_string(),
+            ).into_response();
         }
     };
     let mut guard = model_ref.write().await;
@@ -53,9 +57,10 @@ pub(crate) async fn embeddings(req: Json<EmbeddingRequest>) -> (Status, Json<Val
         Ok(v) => v,
         Err(e) => {
             return (
-                Status::BadRequest,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
+                axum::http::StatusCode::BAD_REQUEST,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                serde_json::json!({ "error": e.to_string() }).to_string(),
+            ).into_response();
         }
     };
     let model_name = guard.which_model.as_string();
@@ -73,5 +78,9 @@ pub(crate) async fn embeddings(req: Json<EmbeddingRequest>) -> (Status, Json<Val
         data,
         model: model_name,
     };
-    (Status::Ok, Json(serde_json::to_value(response).unwrap()))
+    (
+        axum::http::StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        serde_json::to_string(&response).unwrap(),
+    ).into_response()
 }

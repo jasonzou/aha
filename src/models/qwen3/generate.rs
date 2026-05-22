@@ -8,7 +8,7 @@ use crate::params::chat::{
 use anyhow::Result;
 use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
-use rocket::futures::Stream;
+use futures::Stream;
 
 use crate::models::qwen3::config::{Qwen3Config, Qwen3GenerationConfig};
 use crate::models::qwen3::model::Qwen3Model;

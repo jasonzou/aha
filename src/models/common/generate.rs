@@ -1,8 +1,8 @@
 use anyhow::Result;
 use candle_core::{DType, Device, Tensor};
 use candle_transformers::generation::LogitsProcessor;
-use rocket::async_stream::stream;
-use rocket::futures::Stream;
+use async_stream::stream;
+use tokio_stream::Stream;
 use std::time::Instant;
 
 use crate::{

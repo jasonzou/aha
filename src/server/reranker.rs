@@ -1,8 +1,9 @@
-use rocket::{http::Status, post, serde::json::Json};
-use serde_json::Value;
+use axum::Json as AxumJson;
+use axum::response::IntoResponse;
+use serde::Deserialize;
 
 use crate::{
-    params::rerank::{RerankRequest, RerankResponse, RerankResult},
+    params::rerank::{RerankResponse, RerankResult},
     server::api::MODEL,
 };
 
@@ -21,23 +22,33 @@ fn validate_rerank_input(query: &str, documents: &[String]) -> anyhow::Result<()
     Ok(())
 }
 
-#[post("/rerank", data = "<req>")]
-pub(crate) async fn rerank(req: Json<RerankRequest>) -> (Status, Json<Value>) {
-    let req = req.into_inner();
+#[derive(Deserialize)]
+pub(crate) struct RerankRequestJson {
+    model: Option<String>,
+    query: String,
+    documents: Vec<String>,
+    top_n: Option<usize>,
+}
+
+pub(crate) async fn rerank(
+    AxumJson(req): AxumJson<RerankRequestJson>,
+) -> axum::response::Response {
     if let Err(e) = validate_rerank_input(&req.query, &req.documents) {
         return (
-            Status::BadRequest,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        );
+            axum::http::StatusCode::BAD_REQUEST,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            serde_json::json!({ "error": e.to_string() }).to_string(),
+        ).into_response();
     }
 
     let model_ref = match MODEL.get().cloned() {
         Some(v) => v,
         None => {
             return (
-                Status::ServiceUnavailable,
-                Json(serde_json::json!({ "error": "model not init" })),
-            );
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                serde_json::json!({ "error": "model not init" }).to_string(),
+            ).into_response();
         }
     };
 
@@ -46,9 +57,10 @@ pub(crate) async fn rerank(req: Json<RerankRequest>) -> (Status, Json<Value>) {
         Ok(v) => v,
         Err(e) => {
             return (
-                Status::BadRequest,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
+                axum::http::StatusCode::BAD_REQUEST,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                serde_json::json!({ "error": e.to_string() }).to_string(),
+            ).into_response();
         }
     };
 
@@ -71,5 +83,9 @@ pub(crate) async fn rerank(req: Json<RerankRequest>) -> (Status, Json<Value>) {
         model: guard.which_model.as_string(),
         results,
     };
-    (Status::Ok, Json(serde_json::to_value(response).unwrap()))
+    (
+        axum::http::StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        serde_json::to_string(&response).unwrap(),
+    ).into_response()
 }

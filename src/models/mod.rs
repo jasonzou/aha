@@ -10,7 +10,7 @@ use crate::models::common::model_mapping::WhichModel;
 use crate::params::chat::{ChatCompletionChunkResponse, ChatCompletionParameters, ChatCompletionResponse};
 use anyhow::{Result, anyhow};
 use candle_core::{DType, Device};
-use rocket::futures::Stream;
+use futures::Stream;
 
 use crate::models::{
     fun_asr_nano::generate::FunAsrNanoGenerateModel,

@@ -1,13 +1,13 @@
-use crate::server::api::set_server_port;
-use crate::server::process::{cleanup_pid_file, create_pid_file};
-use rocket::data::{ByteUnit, Limits};
-use rocket::{Config, routes};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::net::TcpListener;
+use tokio::sync::oneshot;
+use tower_http::cors::CorsLayer;
 
-// ASR (Automatic Speech Recognition) API module
 pub(crate) mod api;
 pub(crate) mod asr;
 pub(crate) mod embedding;
@@ -19,70 +19,51 @@ pub(crate) async fn start_http_server(
     port: u16,
     allow_remote_shutdown: bool,
 ) -> anyhow::Result<()> {
-    // Set server port for shutdown endpoint
-    set_server_port(port, allow_remote_shutdown);
+    api::set_server_port(port, allow_remote_shutdown);
 
-    // Create PID file for service tracking
     let pid = std::process::id();
-    create_pid_file(pid, port)?;
+    process::create_pid_file(pid, port)?;
 
-    // Set up shutdown flag
-    let shutdown_flag = Arc::new(AtomicBool::new(false));
-    let shutdown_flag_clone = shutdown_flag.clone();
+    let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
 
-    // Configure Ctrl+C handler for graceful shutdown
-    let port_for_cleanup = port;
-    let shutdown_handler = tokio::spawn(async move {
+    tokio::spawn(async move {
         tokio::signal::ctrl_c().await.ok();
         println!("Received shutdown signal, gracefully shutting down...");
-        shutdown_flag_clone.store(true, Ordering::SeqCst);
-        // Give time for existing requests to complete
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        // Cleanup PID file
-        let _ = cleanup_pid_file(port_for_cleanup);
-        std::process::exit(0);
+        let _ = shutdown_tx.send(());
     });
 
-    let mut builder = rocket::build().configure(Config {
-        address: IpAddr::from_str(&address)?,
-        port,
-        limits: Limits::default()
-            .limit("string", ByteUnit::Mebibyte(5))
-            .limit("json", ByteUnit::Mebibyte(5))
-            .limit("data-form", ByteUnit::Mebibyte(100))
-            .limit("file", ByteUnit::Mebibyte(100)),
-        ..Config::default()
-    });
+    let ip_address: IpAddr = IpAddr::from_str(&address)?;
 
-    builder = builder.mount("/v1/chat", routes![api::chat]);
-    builder = builder.mount("/chat", routes![api::chat]);
-    // /images/remove_background
-    builder = builder.mount("/images", routes![api::remove_background]);
-    // /audio/speech and /audio/transcriptions (ASR transcription endpoint)
-    builder = builder.mount("/audio", routes![api::speech, asr::transcriptions]);
-    // /v1/audio/transcriptions (OpenAI standard ASR transcription endpoint)
-    builder = builder.mount("/v1/audio", routes![asr::transcriptions]);
-    // /embeddings and /v1/embeddings (OpenAI-compatible embeddings endpoint)
-    builder = builder.mount("/", routes![embedding::embeddings]);
-    builder = builder.mount("/v1", routes![embedding::embeddings]);
+    let cors = CorsLayer::permissive();
 
-    // /rerank and /v1/rerank (OpenAI-compatible embeddings endpoint)
-    builder = builder.mount("/", routes![reranker::rerank]);
-    builder = builder.mount("/v1", routes![reranker::rerank]);
+    let app = Router::new()
+        .route("/v1/chat/completions", post(api::chat))
+        .route("/chat/completions", post(api::chat))
+        .route("/images/remove_background", post(api::remove_background))
+        .route("/audio/speech", post(api::speech))
+        .route("/audio/transcriptions", post(asr::transcriptions))
+        .route("/v1/audio/transcriptions", post(asr::transcriptions))
+        .route("/embeddings", post(embedding::embeddings))
+        .route("/v1/embeddings", post(embedding::embeddings))
+        .route("/rerank", post(reranker::rerank))
+        .route("/v1/rerank", post(reranker::rerank))
+        .route("/health", get(api::health))
+        .route("/models", get(api::models))
+        .route("/v1/models", get(api::models))
+        .route("/shutdown", post(api::shutdown))
+        .layer(cors);
 
-    // Health check and model info endpoints
-    builder = builder.mount("/", routes![api::health, api::models]);
-    // OpenAI-compatible model listing endpoint: /v1/models
-    builder = builder.mount("/v1", routes![api::models]);
-    // Shutdown endpoint
-    builder = builder.manage(shutdown_flag);
-    builder = builder.mount("/", routes![api::shutdown]);
+    let addr = (ip_address, port);
+    let listener = TcpListener::bind(addr).await?;
+    println!("Server listening on {}", addr.1);
 
-    let _rocket = builder.launch().await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            shutdown_rx.await.ok();
+        })
+        .await?;
 
-    // Cleanup PID file when server exits
-    cleanup_pid_file(port)?;
-    shutdown_handler.abort();
+    process::cleanup_pid_file(port)?;
 
     Ok(())
 }

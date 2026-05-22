@@ -10,7 +10,7 @@ use crate::{
 use anyhow::{Result, anyhow};
 use candle_core::{DType, Device, pickle::read_all_with_key};
 use candle_nn::VarBuilder;
-use rocket::futures::Stream;
+use futures::Stream;
 
 use crate::{
     models::{

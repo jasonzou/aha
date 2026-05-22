@@ -13,8 +13,8 @@ use crate::{
 use anyhow::{Result, anyhow};
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
-use rocket::async_stream::stream;
-use rocket::futures::Stream;
+use async_stream::stream;
+use futures::Stream;
 
 use crate::{
     chat_template::ChatTemplate,

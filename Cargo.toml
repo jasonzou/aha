@@ -24,8 +24,21 @@ tokenizers = "0.22.1"
 # aha_openai_dive = { version = "1.4", features = ["stream"] }
 uuid = { version = "1.18.1", features = ["v4"] }
 # chrono = "0.4"
-rocket = { version = "0.5.1", features = ["serde_json", "json"] }
-tokio = "1.47.1"
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1.47.1", features = ["signal"] }
+tokio-stream = "0.1"
+async-stream = "0.3"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+hyper = "1.3"
+hyper-util = { version = "0.1", features = ["tokio", "server", "server-auto"] }
+http-body-util = "0.1"
+mime = "0.3"
+mime_guess = "2"
+axum-extra = { version = "0.9", features = ["typed-header"] }
+headers = "0.3"
+futures = "0.3"
+bytes = "1"
 hound = "3.5.1"
 clap = { version = "4.5.51", features = ["derive"] }
 modelscope = "0.1.5"
